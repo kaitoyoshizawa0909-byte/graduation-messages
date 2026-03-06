@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>卒業メッセージ</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;700;800&family=Share+Tech+Mono&display=swap');
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{width:100%;min-height:100vh;background:#000814;color:#fff;font-family:'Shippori Mincho',serif;}
+
+/* ambient canvas */
+canvas{position:fixed;inset:0;z-index:0;pointer-events:none;}
+
+/* main content */
+.wrap{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:3rem 1.5rem 4rem;}
+
+/* header */
+.header{text-align:center;margin-bottom:3.5rem;opacity:0;animation:fadeUp .8s ease forwards;}
+.header-sub{font-family:'Share Tech Mono',monospace;font-size:clamp(.55rem,2vw,.75rem);letter-spacing:.5em;color:#00e5ff;margin-bottom:.8rem;text-transform:uppercase;}
+.header-title{font-size:clamp(2rem,8vw,3.5rem);font-weight:800;letter-spacing:.15em;line-height:1.2;}
+.header-bar{display:block;width:60px;height:1px;background:linear-gradient(90deg,transparent,#00e5ff,transparent);margin:1rem auto 0;animation:barGrow 1s ease .4s forwards;width:0;}
+
+/* grid */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1.2rem;width:100%;max-width:960px;}
+
+/* card */
+.card{
+  position:relative;
+  background:rgba(255,255,255,.03);
+  border:1px solid rgba(0,229,255,.12);
+  border-radius:6px;
+  padding:1.6rem 1.4rem;
+  text-decoration:none;color:#fff;
+  transition:all .35s cubic-bezier(.22,1,.36,1);
+  overflow:hidden;
+  opacity:0;
+  transform:translateY(20px);
+}
+.card::before{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(135deg,rgba(0,229,255,.06) 0%,transparent 60%);
+  opacity:0;transition:opacity .35s ease;
+}
+.card:hover{
+  border-color:rgba(0,229,255,.45);
+  background:rgba(0,229,255,.06);
+  transform:translateY(-4px);
+  box-shadow:0 8px 32px rgba(0,229,255,.12);
+}
+.card:hover::before{opacity:1;}
+.card-name{
+  font-size:clamp(1.1rem,4vw,1.35rem);
+  font-weight:700;letter-spacing:.12em;
+  margin-bottom:.5rem;
+  transition:color .3s ease;
+}
+.card:hover .card-name{color:#00e5ff;}
+.card-arrow{
+  font-family:'Share Tech Mono',monospace;
+  font-size:.7rem;letter-spacing:.3em;
+  color:rgba(0,229,255,.4);
+  transition:color .3s ease,letter-spacing .3s ease;
+}
+.card:hover .card-arrow{color:#00e5ff;letter-spacing:.5em;}
+
+/* footer */
+.footer{
+  margin-top:3.5rem;text-align:center;
+  font-family:'Share Tech Mono',monospace;
+  font-size:.6rem;letter-spacing:.4em;
+  color:rgba(255,255,255,.15);
+  opacity:0;animation:fadeUp .8s ease 1.2s forwards;
+}
+
+/* animations */
+@keyframes fadeUp{to{opacity:1;transform:translateY(0);}}
+@keyframes barGrow{to{width:120px;}}
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<div class="wrap">
+  <div class="header">
+    <div class="header-sub">Graduation Messages</div>
+    <div class="header-title">卒業メッセージ</div>
+    <span class="header-bar"></span>
+  </div>
+  <div class="grid" id="grid"></div>
+  <div class="footer">TAP A NAME TO VIEW THEIR MESSAGE</div>
+</div>
+
+<script>
+const people = [
+  { file:'wakano_sora.html', name:'若野 青空' },
+  { file:'imori_anko.html', name:'伊森 杏瑚' },
+  { file:'yamamoto_koki.html', name:'山本 航暉' },
+  { file:'tomita_natsuki.html', name:'冨田 夏希' },
+  { file:'tabuchi_tomohiko.html', name:'田淵 智彦' },
+  { file:'akiyoshi_manami.html', name:'秋吉 愛美' },
+  { file:'kubo_ayuka.html', name:'久保 歩風' },
+  { file:'sunazawa_taichi.html', name:'砂澤 太壱' },
+  { file:'nakai_hiroto.html', name:'中井 裕翔' },
+  { file:'hayashida_kyoka.html', name:'林田 京華' },
+  { file:'hayashi_kensei.html', name:'林 憲生' },
+  { file:'wang_can.html', name:'王 粲' },
+  { file:'ichio_shusaku.html', name:'一尾 周策' },
+  { file:'sugiura_takuma.html', name:'杉浦 拓真' },
+];
+
+const grid = document.getElementById('grid');
+people.forEach((p, i) => {
+  const a = document.createElement('a');
+  a.className = 'card';
+  a.href = p.file;
+  a.style.animationDelay = (0.3 + i * 0.07) + 's';
+  a.style.animation = 'fadeUp .6s ease ' + (0.3 + i * 0.07) + 's forwards';
+  a.innerHTML = `<div class="card-name">${p.name}</div><div class="card-arrow">OPEN →</div>`;
+  grid.appendChild(a);
+});
+
+/* subtle particle background */
+const canvas = document.getElementById('bg');
+const ctx = canvas.getContext('2d');
+let W, H, dots = [];
+function resize(){ W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
+resize(); addEventListener('resize', resize);
+for(let i=0;i<60;i++) dots.push({ x:Math.random()*2000, y:Math.random()*2000, r:Math.random()*1.2+0.3, s:Math.random()*0.3+0.1, a:Math.random()*0.4+0.1 });
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  dots.forEach(d=>{
+    d.y -= d.s; if(d.y < -5){ d.y = H+5; d.x = Math.random()*W; }
+    ctx.beginPath();ctx.arc(d.x,d.y,d.r,0,Math.PI*2);
+    ctx.fillStyle=`rgba(0,229,255,${d.a})`;ctx.fill();
+  });
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>
