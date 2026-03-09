@@ -43,7 +43,7 @@ canvas{position:fixed;inset:0;pointer-events:none;}
 #final-name{font-family:'Shippori Mincho',serif;font-size:clamp(2.2rem,11vw,4.5rem);font-weight:800;letter-spacing:0.12em;color:#fff;text-shadow:0 0 40px #ffb7c588;opacity:0;transform:translateY(16px);transition:opacity 0.7s ease,transform 0.7s cubic-bezier(0.22,1,0.36,1);}
 #final-msg{font-family:'Shippori Mincho',serif;font-size:clamp(0.9rem,4.5vw,1.4rem);font-weight:400;letter-spacing:0.15em;color:#ffe4ec;text-shadow:0 0 20px #ffe4ec88;opacity:0;transform:translateY(12px);transition:opacity 0.7s ease 0.25s,transform 0.7s ease 0.25s;}
 #final-from{font-family:'Share Tech Mono',monospace;font-size:clamp(1.4rem,5.5vw,1.9rem);letter-spacing:0.35em;color:rgba(255,255,255,0.45);opacity:0;transition:opacity 0.7s ease 0.6s;}
-#flash{position:fixed;inset:0;z-index:20;pointer-events:none;background:#fff;opacity:0;transition:opacity 0.25s;}
+#flash{position:fixed;inset:0;z-index:55;pointer-events:none;background:#fff;opacity:0;transition:opacity 0.25s;}
 #scan{position:fixed;inset:0;z-index:15;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.06) 3px,rgba(0,0,0,0.06) 4px);}
 </style>
 </head>
@@ -70,7 +70,99 @@ canvas{position:fixed;inset:0;pointer-events:none;}
     <div id="final-from">✦ &nbsp; Yoshy &nbsp; ✦</div>
   </div>
 </div>
+<canvas id="c-game" style="position:fixed;inset:0;z-index:40;pointer-events:auto;display:none;cursor:crosshair;"></canvas>
+<div id="game-ui" style="position:fixed;inset:0;z-index:45;display:none;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:8vh;pointer-events:none;">
+  <div style="font-family:'Share Tech Mono',monospace;font-size:clamp(0.55rem,2.5vw,0.82rem);letter-spacing:0.3em;color:#ffb7c5;margin-bottom:0.7rem;opacity:0.85;">🌸 ペアを見つけろ！</div>
+  <div style="display:flex;align-items:baseline;gap:0.25rem;">
+    <span id="g-count" style="font-family:'Shippori Mincho',serif;font-size:clamp(2.2rem,11vw,3.5rem);font-weight:800;line-height:1;color:#fff;">6</span>
+    <span style="font-family:'Shippori Mincho',serif;font-size:clamp(0.9rem,4vw,1.3rem);color:rgba(255,255,255,0.6);">残り</span>
+  </div>
+  <div style="width:min(220px,52vw);height:3px;background:rgba(255,255,255,0.15);border-radius:2px;margin-top:0.9rem;overflow:hidden;">
+    <div id="g-fill" style="height:100%;width:0%;background:#ffb7c5;border-radius:2px;transition:width 0.18s ease;"></div>
+  </div>
+</div>
+<div id="game-clear" style="position:fixed;inset:0;z-index:46;display:flex;align-items:center;justify-content:center;font-family:'Share Tech Mono',monospace;font-size:clamp(1.8rem,9vw,3.2rem);letter-spacing:0.5em;color:#fff;opacity:0;pointer-events:none;transition:opacity 0.3s;text-shadow:0 0 35px #ffb7c5;">✦ CLEAR! ✦</div>
 <script>
+
+const gcEl=document.getElementById('c-game');const gc=gcEl.getContext('2d');
+gcEl.width=window.innerWidth;gcEl.height=window.innerHeight;
+const gcW=gcEl.width,gcH=gcEl.height;
+let gRunning=false,gCards=[],gFlipped=[],gMatched=0,gLocked=false,gRafId=0;
+const COLS=['#ffb7c5','#ff69b4','#c2185b','#f48fb1','#e91e63','#ad1457'];
+const CW=Math.min(gcW/5,80),CH=CW*1.2,PAD=10;
+const COLS_N=4,ROWS_N=3;
+const OX=(gcW-COLS_N*(CW+PAD))/2,OY=(gcH-ROWS_N*(CH+PAD))/2;
+function gInit(){
+  const pairs=[0,0,1,1,2,2,3,3,4,4,5,5].sort(()=>Math.random()-0.5);
+  gCards=pairs.map((c,i)=>{
+    const col=i%COLS_N,row=Math.floor(i/COLS_N);
+    return{c,x:OX+col*(CW+PAD),y:OY+row*(CH+PAD),flip:0,matched:false};
+  });
+}
+function gDraw(){
+  if(!gRunning)return;
+  gc.clearRect(0,0,gcW,gcH);
+  gCards.forEach(c=>{
+    gc.save();gc.translate(c.x+CW/2,c.y+CH/2);
+    const scaleX=Math.abs(Math.cos(c.flip*Math.PI));
+    gc.scale(scaleX,1);
+    gc.beginPath();gc.roundRect(-CW/2,-CH/2,CW,CH,10);
+    if(c.matched){gc.fillStyle='rgba(255,183,197,0.25)';gc.fill();}
+    else if(c.flip>0.5){
+      gc.fillStyle=COLS[c.c];gc.fill();
+      gc.globalAlpha=1;
+      const pr=CW*0.28;
+      gc.fillStyle='rgba(255,255,255,0.3)';
+      gc.beginPath();gc.ellipse(0,0,pr*1.3,pr*0.55,0,0,Math.PI*2);gc.fill();
+      gc.beginPath();gc.ellipse(0,-pr*0.4,pr*0.7,pr*0.4,Math.PI/8,0,Math.PI*2);gc.fill();
+    }else{
+      gc.fillStyle='rgba(255,255,255,0.08)';gc.fill();
+      gc.strokeStyle='#ffb7c5';gc.lineWidth=1.5;gc.globalAlpha=0.4;gc.stroke();
+      gc.fillStyle='#ffb7c5';gc.globalAlpha=0.3;gc.font=`${CW*0.5}px serif`;gc.textAlign='center';gc.textBaseline='middle';gc.fillText('🌸',0,0);
+    }
+    gc.restore();
+  });
+  gc.globalAlpha=1;
+  gRafId=requestAnimationFrame(gDraw);
+}
+function gTap(px,py){
+  if(!gRunning||gLocked)return;
+  const already=gFlipped.filter(c=>!c.matched);
+  if(already.length>=2)return;
+  const c=gCards.find(c=>!c.matched&&c.flip<0.5&&px>c.x&&px<c.x+CW&&py>c.y&&py<c.y+CH);
+  if(!c||already.includes(c))return;
+  pt(660+gMatched*55,'sine',0,0.15,0.1);
+  // animate flip
+  let t2=0;
+  const anim=()=>{t2+=0.08;c.flip=Math.min(t2,1);if(t2<1)requestAnimationFrame(anim);};
+  anim();
+  gFlipped.push(c);
+  if(gFlipped.length===2){
+    gLocked=true;
+    setTimeout(()=>{
+      const [a,b]=gFlipped;
+      if(a.c===b.c){
+        a.matched=b.matched=true;gMatched++;
+        chord([440,554,659],'sine',0,0.5,0.1);
+        const rem=6-gMatched;
+        document.getElementById('g-count').textContent=rem;
+        document.getElementById('g-fill').style.width=(gMatched/6*100)+'%';
+        if(gMatched>=6){gRunning=false;chord([523,659,784,1047],'sine',0,1.2,0.12);for(let i=0;i<5;i++)pt(1047+i*130,'sine',i*0.07,0.8,0.07);doFlash(140,'#ffb7c5');document.getElementById('game-clear').style.opacity='1';setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>{const el=document.getElementById(id);el.style.transition='opacity 0.6s';el.style.opacity='0';});setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>document.getElementById(id).style.display='none');run();},680);},950);}
+      }else{pn(0,0.2,0.15,200,0.5);a.flip=0;b.flip=0;}
+      gFlipped=[];gLocked=false;
+    },700);
+  }
+}
+gcEl.addEventListener('click',e=>{const r=gcEl.getBoundingClientRect();gTap(e.clientX-r.left,e.clientY-r.top);});
+gcEl.addEventListener('touchstart',e=>{e.preventDefault();const r=gcEl.getBoundingClientRect(),t2=e.changedTouches[0];gTap(t2.clientX-r.left,t2.clientY-r.top);},{passive:false});
+function startGame(){
+  gRunning=true;gInit();
+  document.getElementById('game-ui').style.display='flex';
+  document.getElementById('g-count').textContent='6';
+  gcEl.style.display='block';
+  gDraw();
+}
+
 const W=()=>window.innerWidth,H=()=>window.innerHeight;
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 function ease(t){return t<0.5?2*t*t:1-(-2*t+2)**2/2;}
@@ -265,7 +357,7 @@ const tapOv=document.getElementById('tap-ov');
 function startAll(){
   tapOv.style.opacity='0';
   setTimeout(()=>tapOv.style.display='none',600);
-  img.complete?run():img.onload=run;
+  startGame();
 }
 tapOv.addEventListener('click',startAll,{once:true});
 tapOv.addEventListener('touchend',e=>{e.preventDefault();startAll();},{once:true,passive:false});

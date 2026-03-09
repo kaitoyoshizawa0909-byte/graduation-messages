@@ -43,7 +43,7 @@ canvas{position:fixed;inset:0;pointer-events:none;}
 #final-name{font-family:'Shippori Mincho',serif;font-size:clamp(2.2rem,11vw,4.5rem);font-weight:800;letter-spacing:0.12em;color:#fff;text-shadow:0 0 40px #ff572288;opacity:0;transform:translateY(16px);transition:opacity 0.7s ease,transform 0.7s cubic-bezier(0.22,1,0.36,1);}
 #final-msg{font-family:'Shippori Mincho',serif;font-size:clamp(0.9rem,4.5vw,1.4rem);font-weight:400;letter-spacing:0.15em;color:#ffccbc;text-shadow:0 0 20px #ffccbc88;opacity:0;transform:translateY(12px);transition:opacity 0.7s ease 0.25s,transform 0.7s ease 0.25s;}
 #final-from{font-family:'Share Tech Mono',monospace;font-size:clamp(1.4rem,5.5vw,1.9rem);letter-spacing:0.35em;color:rgba(255,255,255,0.45);opacity:0;transition:opacity 0.7s ease 0.6s;}
-#flash{position:fixed;inset:0;z-index:20;pointer-events:none;background:#fff;opacity:0;transition:opacity 0.25s;}
+#flash{position:fixed;inset:0;z-index:55;pointer-events:none;background:#fff;opacity:0;transition:opacity 0.25s;}
 #scan{position:fixed;inset:0;z-index:15;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.06) 3px,rgba(0,0,0,0.06) 4px);}
 </style>
 </head>
@@ -70,7 +70,186 @@ canvas{position:fixed;inset:0;pointer-events:none;}
     <div id="final-from">✦ &nbsp; Yoshy &nbsp; ✦</div>
   </div>
 </div>
+<canvas id="c-game" style="position:fixed;inset:0;z-index:40;pointer-events:auto;display:none;cursor:crosshair;"></canvas>
+<div id="game-ui" style="position:fixed;inset:0;z-index:45;display:none;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:8vh;pointer-events:none;">
+  <div style="font-family:'Share Tech Mono',monospace;font-size:clamp(0.55rem,2.5vw,0.82rem);letter-spacing:0.3em;color:#ff5722;margin-bottom:0.7rem;opacity:0.85;">🍂 落ち葉をゴミ箱へ！</div>
+  <div style="display:flex;align-items:baseline;gap:0.25rem;">
+    <span id="g-count" style="font-family:'Shippori Mincho',serif;font-size:clamp(2.2rem,11vw,3.5rem);font-weight:800;line-height:1;color:#fff;">12</span>
+    <span style="font-family:'Shippori Mincho',serif;font-size:clamp(0.9rem,4vw,1.3rem);color:rgba(255,255,255,0.6);">残り</span>
+  </div>
+  <div style="width:min(220px,52vw);height:3px;background:rgba(255,255,255,0.15);border-radius:2px;margin-top:0.9rem;overflow:hidden;">
+    <div id="g-fill" style="height:100%;width:0%;background:#ff5722;border-radius:2px;transition:width 0.18s ease;"></div>
+  </div>
+</div>
+<div id="game-clear" style="position:fixed;inset:0;z-index:46;display:flex;align-items:center;justify-content:center;font-family:'Share Tech Mono',monospace;font-size:clamp(1.8rem,9vw,3.2rem);letter-spacing:0.5em;color:#fff;opacity:0;pointer-events:none;transition:opacity 0.3s;text-shadow:0 0 35px #ff5722;">✦ CLEAR! ✦</div>
 <script>
+
+const gcEl=document.getElementById('c-game');const gc=gcEl.getContext('2d');
+gcEl.width=window.innerWidth;gcEl.height=window.innerHeight;
+const gcW=gcEl.width,gcH=gcEl.height;
+
+const BIN_X=gcW/2,BIN_Y=gcH*0.62;
+const BIN_W=gcW*0.22,BIN_H=gcH*0.14;
+
+let gRunning=false,gLeaves=[],gScore=0,gRafId=0,gSpawnT=0,gLastTs=0;
+let gDrag=null; // currently dragged leaf
+
+const COLORS=['#ff5722','#ff8f00','#e65100','#bf360c','#d84315'];
+
+function gSpawnLeaf(){
+  // Spawn on edges, avoiding bin center
+  let x,y;
+  const side=Math.floor(Math.random()*4);
+  if(side===0){x=gcW*0.08+Math.random()*gcW*0.84;y=gcH*0.06+Math.random()*gcH*0.18;}
+  else if(side===1){x=gcW*0.06+Math.random()*gcW*0.35;y=gcH*0.28+Math.random()*gcH*0.35;}
+  else if(side===2){x=gcW*0.59+Math.random()*gcW*0.35;y=gcH*0.28+Math.random()*gcH*0.35;}
+  else{x=gcW*0.08+Math.random()*gcW*0.84;y=gcH*0.78+Math.random()*gcH*0.16;}
+  gLeaves.push({
+    x,y,rot:Math.random()*Math.PI*2,
+    r:16+Math.random()*10,
+    col:COLORS[Math.floor(Math.random()*COLORS.length)],
+    dragging:false,offX:0,offY:0,
+    scored:false,scoreAnim:0,wobble:Math.random()*Math.PI*2
+  });
+}
+
+function gDrawBin(shake){
+  gc.save();
+  gc.translate(BIN_X,BIN_Y+(shake?Math.sin(Date.now()*0.05)*3:0));
+  // Lid
+  gc.globalAlpha=0.88;
+  gc.fillStyle='#546e7a';
+  gc.beginPath();
+  gc.roundRect(-BIN_W/2-5,-BIN_H*0.12,BIN_W+10,BIN_H*0.2,4);
+  gc.fill();
+  // Handle on lid
+  gc.fillStyle='#37474f';
+  gc.beginPath();
+  gc.roundRect(-BIN_W*0.15,-BIN_H*0.22,BIN_W*0.3,BIN_H*0.14,4);
+  gc.fill();
+  // Body (solid trapezoid, no stripes)
+  gc.fillStyle='#607d8b';
+  gc.beginPath();
+  gc.moveTo(-BIN_W/2+BIN_W*0.06,0);
+  gc.lineTo(-BIN_W/2,BIN_H*0.88);
+  gc.lineTo(BIN_W/2,BIN_H*0.88);
+  gc.lineTo(BIN_W/2-BIN_W*0.06,0);
+  gc.closePath();
+  gc.fill();
+  // Highlight strip
+  gc.globalAlpha=0.18;
+  gc.fillStyle='#fff';
+  gc.beginPath();
+  gc.moveTo(-BIN_W*0.28,BIN_H*0.06);
+  gc.lineTo(-BIN_W*0.22,BIN_H*0.82);
+  gc.lineTo(-BIN_W*0.1,BIN_H*0.82);
+  gc.lineTo(-BIN_W*0.16,BIN_H*0.06);
+  gc.closePath();
+  gc.fill();
+  gc.restore();
+}
+function gInBin(x,y){
+  return Math.abs(x-BIN_X)<BIN_W*0.6 && y>BIN_Y-BIN_H*0.1 && y<BIN_Y+BIN_H;
+}
+
+function gDraw(){
+  if(!gRunning)return;
+  const ts=Date.now();
+  gSpawnT++;
+  if(gSpawnT>90&&gLeaves.filter(l=>!l.scored).length<5){gSpawnT=0;gSpawnLeaf();}
+
+  gc.clearRect(0,0,gcW,gcH);
+
+  // Bin glow when drag nearby
+  const nearBin=gDrag&&Math.hypot(gDrag.x-BIN_X,gDrag.y-BIN_Y)<gcW*0.28;
+  if(nearBin){
+    gc.globalAlpha=0.2;
+    const bg=gc.createRadialGradient(BIN_X,BIN_Y,0,BIN_X,BIN_Y,BIN_W);
+    bg.addColorStop(0,'#ff5722');bg.addColorStop(1,'transparent');
+    gc.fillStyle=bg;gc.beginPath();gc.arc(BIN_X,BIN_Y,BIN_W,0,Math.PI*2);gc.fill();
+  }
+
+  // Leaves
+  gLeaves.forEach(l=>{
+    if(l.scored){
+      l.scoreAnim+=0.07;
+      gc.save();gc.translate(l.x,l.y);gc.scale(1-l.scoreAnim,1-l.scoreAnim);
+      gc.globalAlpha=Math.max(0,1-l.scoreAnim);
+      gc.fillStyle=l.col;
+      gc.beginPath();gc.moveTo(0,-l.r*1.4);gc.quadraticCurveTo(l.r*1.1,-l.r*0.3,0,l.r*0.9);gc.quadraticCurveTo(-l.r*1.1,-l.r*0.3,0,-l.r*1.4);gc.fill();
+      gc.restore();return;
+    }
+    if(!l.dragging) l.wobble+=0.015;
+    gc.save();gc.translate(l.x,l.y);
+    gc.rotate(l.rot+(l.dragging?0:Math.sin(l.wobble)*0.08));
+    gc.globalAlpha=l.dragging?0.92:0.85;
+    gc.fillStyle=l.col;
+    // Leaf shape
+    gc.beginPath();gc.moveTo(0,-l.r*1.5);gc.quadraticCurveTo(l.r*1.2,-l.r*0.3,0,l.r);gc.quadraticCurveTo(-l.r*1.2,-l.r*0.3,0,-l.r*1.5);gc.fill();
+    // Vein
+    gc.globalAlpha*=0.3;gc.strokeStyle='rgba(255,255,255,0.8)';gc.lineWidth=1;
+    gc.beginPath();gc.moveTo(0,-l.r*1.3);gc.lineTo(0,l.r*0.8);gc.stroke();
+    if(l.dragging){
+      gc.globalAlpha=0.4;gc.strokeStyle='#ffdd00';gc.lineWidth=2;
+      gc.beginPath();gc.arc(0,0,l.r*1.6,0,Math.PI*2);gc.stroke();
+    }
+    gc.restore();
+  });
+  gLeaves=gLeaves.filter(l=>!l.scored||l.scoreAnim<1);
+
+  // Bin drawn on top of leaves
+  gDrawBin(nearBin);
+
+  gc.globalAlpha=1;
+  gRafId=requestAnimationFrame(gDraw);
+}
+
+function gFindLeaf(px,py){
+  for(let i=gLeaves.length-1;i>=0;i--){
+    const l=gLeaves[i];
+    if(!l.scored&&Math.hypot(px-l.x,py-l.y)<l.r*2.0) return l;
+  }
+  return null;
+}
+function gPointerDown(px,py){
+  if(!gRunning)return;
+  const l=gFindLeaf(px,py);
+  if(l){l.dragging=true;l.offX=l.x-px;l.offY=l.y-py;gDrag=l;sw(300,500,'sine',0,0.1,0.1);}
+}
+function gPointerMove(px,py){
+  if(gDrag){gDrag.x=px+gDrag.offX;gDrag.y=py+gDrag.offY;}
+}
+function gPointerUp(px,py){
+  if(gDrag){
+    if(gInBin(gDrag.x,gDrag.y)){
+      gDrag.scored=true;gDrag.scoreAnim=0;gScore++;
+      chord([440,554,659],'sine',0,0.5,0.12);
+      pt(880,'sine',0.05,0.3,0.1);
+      document.getElementById('g-count').textContent=Math.max(0,12-gScore);
+      document.getElementById('g-fill').style.width=(gScore/12*100)+'%';
+      if(gScore>=12){gRunning=false;chord([523,659,784,1047],'sine',0,1.2,0.12);for(let i=0;i<5;i++)pt(1047+i*130,'sine',i*0.07,0.8,0.07);doFlash(140,'#ff5722');document.getElementById('game-clear').style.opacity='1';setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>{const el=document.getElementById(id);el.style.transition='opacity 0.6s';el.style.opacity='0';});setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>document.getElementById(id).style.display='none');run();},680);},950);}
+    }else{
+      pn(0,0.1,0.12,200,0.5);
+    }
+    gDrag.dragging=false;gDrag=null;
+  }
+}
+
+gcEl.addEventListener('mousedown',e=>{const r=gcEl.getBoundingClientRect();gPointerDown(e.clientX-r.left,e.clientY-r.top);});
+gcEl.addEventListener('mousemove',e=>{const r=gcEl.getBoundingClientRect();gPointerMove(e.clientX-r.left,e.clientY-r.top);});
+gcEl.addEventListener('mouseup',e=>{const r=gcEl.getBoundingClientRect();gPointerUp(e.clientX-r.left,e.clientY-r.top);});
+gcEl.addEventListener('touchstart',e=>{e.preventDefault();const r=gcEl.getBoundingClientRect(),t=e.changedTouches[0];gPointerDown(t.clientX-r.left,t.clientY-r.top);},{passive:false});
+gcEl.addEventListener('touchmove',e=>{e.preventDefault();const r=gcEl.getBoundingClientRect(),t=e.touches[0];gPointerMove(t.clientX-r.left,t.clientY-r.top);},{passive:false});
+gcEl.addEventListener('touchend',e=>{e.preventDefault();const r=gcEl.getBoundingClientRect(),t=e.changedTouches[0];gPointerUp(t.clientX-r.left,t.clientY-r.top);},{passive:false});
+
+function startGame(){
+  gRunning=true;
+  for(let i=0;i<4;i++) gSpawnLeaf();
+  document.getElementById('game-ui').style.display='flex';
+  gcEl.style.display='block';
+  requestAnimationFrame(ts=>{gLastTs=ts;gDraw();});
+}
+
 const W=()=>window.innerWidth,H=()=>window.innerHeight;
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 function ease(t){return t<0.5?2*t*t:1-(-2*t+2)**2/2;}
@@ -268,7 +447,7 @@ const tapOv=document.getElementById('tap-ov');
 function startAll(){
   tapOv.style.opacity='0';
   setTimeout(()=>tapOv.style.display='none',600);
-  img.complete?run():img.onload=run;
+  startGame();
 }
 tapOv.addEventListener('click',startAll,{once:true});
 tapOv.addEventListener('touchend',e=>{e.preventDefault();startAll();},{once:true,passive:false});

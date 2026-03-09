@@ -26,7 +26,7 @@ canvas{position:fixed;inset:0;pointer-events:none;}
 #final-name{font-family:'Shippori Mincho',serif;font-size:clamp(2.2rem,11vw,4.5rem);font-weight:800;letter-spacing:0.12em;color:#fff;text-shadow:0 0 40px #ffd70088;opacity:0;transform:translateY(16px);transition:opacity 0.7s ease,transform 0.7s cubic-bezier(0.22,1,0.36,1);}
 #final-msg{font-family:'Shippori Mincho',serif;font-size:clamp(0.9rem,4.5vw,1.4rem);font-weight:400;letter-spacing:0.15em;color:#ffffff;text-shadow:0 0 20px #ffffff88;opacity:0;transform:translateY(12px);transition:opacity 0.7s ease 0.25s,transform 0.7s ease 0.25s;}
 #final-from{font-family:'Share Tech Mono',monospace;font-size:clamp(1.4rem,5.5vw,1.9rem);letter-spacing:0.35em;color:rgba(255,255,255,0.45);opacity:0;transition:opacity 0.7s ease 0.6s;}
-#flash{position:fixed;inset:0;z-index:20;pointer-events:none;background:#fff;opacity:0;transition:opacity 0.25s;}
+#flash{position:fixed;inset:0;z-index:55;pointer-events:none;background:#fff;opacity:0;transition:opacity 0.25s;}
 #scan{position:fixed;inset:0;z-index:15;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.06) 3px,rgba(0,0,0,0.06) 4px);}
 </style>
 </head>
@@ -52,7 +52,259 @@ canvas{position:fixed;inset:0;pointer-events:none;}
     <div id="final-from">✦ &nbsp; Yoshy &nbsp; ✦</div>
   </div>
 </div>
+<canvas id="c-game" style="position:fixed;inset:0;z-index:40;pointer-events:auto;display:none;cursor:crosshair;"></canvas>
+<div id="game-ui" style="position:fixed;inset:0;z-index:45;display:none;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:8vh;pointer-events:none;">
+  <div style="font-family:'Share Tech Mono',monospace;font-size:clamp(0.55rem,2.5vw,0.82rem);letter-spacing:0.3em;color:#ffd700;margin-bottom:0.7rem;opacity:0.85;">🎬 星にライトを当てろ！</div>
+  <div style="display:flex;align-items:baseline;gap:0.25rem;">
+    <span id="g-count" style="font-family:'Shippori Mincho',serif;font-size:clamp(2.2rem,11vw,3.5rem);font-weight:800;line-height:1;color:#fff;">12</span>
+    <span style="font-family:'Shippori Mincho',serif;font-size:clamp(0.9rem,4vw,1.3rem);color:rgba(255,255,255,0.6);">残り</span>
+  </div>
+  <div style="width:min(220px,52vw);height:3px;background:rgba(255,255,255,0.15);border-radius:2px;margin-top:0.9rem;overflow:hidden;">
+    <div id="g-fill" style="height:100%;width:0%;background:#ffd700;border-radius:2px;transition:width 0.18s ease;"></div>
+  </div>
+</div>
+<div id="game-clear" style="position:fixed;inset:0;z-index:46;display:flex;align-items:center;justify-content:center;font-family:'Share Tech Mono',monospace;font-size:clamp(1.8rem,9vw,3.2rem);letter-spacing:0.5em;color:#fff;opacity:0;pointer-events:none;transition:opacity 0.3s;text-shadow:0 0 35px #ffd700;">✦ CLEAR! ✦</div>
 <script>
+
+const gcEl = document.getElementById('c-game');
+const gc   = gcEl.getContext('2d');
+gcEl.width  = window.innerWidth;
+gcEl.height = window.innerHeight;
+const gcW = gcEl.width, gcH = gcEl.height;
+
+const SRC_X = gcW * 0.5;
+const SRC_Y = gcH * 0.93;
+
+// Beam angle: -PI/2 = straight up, range roughly -PI*0.9 to -PI*0.1
+const ANGLE_MIN = -Math.PI * 0.88;
+const ANGLE_MAX = -Math.PI * 0.12;
+const LIT_TOL   = 0.11;   // radians — beam must be within this of star bearing
+const LIT_HOLD  = 38;     // frames beam must stay on star to auto-score
+
+let gRunning    = false;
+let gScore      = 0;
+let gBeamAngle  = -Math.PI / 2;   // current beam angle
+let gTargetAngle= -Math.PI / 2;   // angle player is aiming at
+let gStar       = null;            // { x, y, bear, litFrames, popAnim }
+let gParticles  = [];
+let gHitFlash   = 0;
+let gRafId      = 0;
+
+function gSpawnStar() {
+  // Place star somewhere in upper 70% of screen, not too close to edges
+  const margin = gcW * 0.12;
+  const x = margin + Math.random() * (gcW - margin * 2);
+  const y = gcH * 0.08 + Math.random() * gcH * 0.60;
+  // Bearing from SRC toward star
+  const bear = Math.atan2(y - SRC_Y, x - SRC_X);
+  // Clamp within reachable range
+  const clampedBear = Math.max(ANGLE_MIN, Math.min(ANGLE_MAX, bear));
+  // Recompute x so it's actually reachable
+  const dist = Math.hypot(x - SRC_X, y - SRC_Y);
+  const rx = SRC_X + Math.cos(clampedBear) * dist;
+  const ry = SRC_Y + Math.sin(clampedBear) * dist;
+  gStar = { x: rx, y: ry, bear: clampedBear, litFrames: 0, popAnim: 0 };
+}
+
+function gBurst(x, y) {
+  for (let i = 0; i < 14; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const spd = 2 + Math.random() * 5;
+    gParticles.push({ x, y, vx: Math.cos(a)*spd, vy: Math.sin(a)*spd,
+                      life: 1, r: 3 + Math.random()*5 });
+  }
+}
+
+// Map pointer X → beam angle
+function gPointerToAngle(px) {
+  const t = Math.max(0, Math.min(1, px / gcW));
+  return ANGLE_MIN + t * (ANGLE_MAX - ANGLE_MIN);
+}
+
+function gSetTarget(px) {
+  if (!gRunning) return;
+  gTargetAngle = gPointerToAngle(px);
+}
+
+function gDraw() {
+  if (!gRunning) return;
+
+  // Smoothly move beam toward target
+  const diff = gTargetAngle - gBeamAngle;
+  gBeamAngle += diff * 0.14;
+
+  // Lit check
+  if (gStar) {
+    gStar.popAnim = Math.min(1, gStar.popAnim + 0.06);
+    const isLit = Math.abs(gBeamAngle - gStar.bear) < LIT_TOL;
+    if (isLit) {
+      gStar.litFrames++;
+      if (gStar.litFrames >= LIT_HOLD) {
+        // Score!
+        gBurst(gStar.x, gStar.y);
+        gHitFlash = 22;
+        gScore++;
+        pt(880, 'sine', 0, 0.22, 0.14);
+        pt(1100, 'sine', 0.04, 0.18, 0.1);
+        chord([659,784,1047], 'sine', 0.06, 0.6, 0.12);
+        document.getElementById('g-count').textContent = Math.max(0, 12 - gScore);
+        document.getElementById('g-fill').style.width = (gScore / 12 * 100) + '%';
+        gStar = null;
+        if (gScore >= 12) { gRunning=false;chord([523,659,784,1047],'sine',0,1.2,0.12);for(let i=0;i<5;i++)pt(1047+i*130,'sine',i*0.07,0.8,0.07);doFlash(140,'#ffd700');document.getElementById('game-clear').style.opacity='1';setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>{const el=document.getElementById(id);el.style.transition='opacity 0.6s';el.style.opacity='0';});setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>document.getElementById(id).style.display='none');run();},680);},950); return; }
+        setTimeout(gSpawnStar, 420);
+      }
+    } else {
+      gStar.litFrames = Math.max(0, gStar.litFrames - 1);
+    }
+  }
+
+  // Particles
+  gParticles.forEach(p => { p.x+=p.vx; p.y+=p.vy; p.vy+=0.12; p.life-=0.04; });
+  gParticles = gParticles.filter(p => p.life > 0);
+
+  gc.clearRect(0, 0, gcW, gcH);
+
+  // ── Beam ──────────────────────────────────────────────────────
+  const beamLen = gcH * 1.3;
+  const bx = SRC_X + Math.cos(gBeamAngle) * beamLen;
+  const by = SRC_Y + Math.sin(gBeamAngle) * beamLen;
+  const hw = Math.tan(0.08) * beamLen;
+  const px2 = -Math.sin(gBeamAngle), py2 = Math.cos(gBeamAngle);
+
+  const coneGrad = gc.createLinearGradient(SRC_X, SRC_Y, bx, by);
+  coneGrad.addColorStop(0, 'rgba(255,215,0,0.55)');
+  coneGrad.addColorStop(1, 'rgba(255,215,0,0.0)');
+  gc.save();
+  gc.beginPath();
+  gc.moveTo(SRC_X, SRC_Y);
+  gc.lineTo(bx + px2*hw, by + py2*hw);
+  gc.lineTo(bx - px2*hw, by - py2*hw);
+  gc.closePath();
+  gc.fillStyle = coneGrad;
+  gc.fill();
+  gc.restore();
+
+  // Source lamp glow
+  gc.globalAlpha = 0.7;
+  const srcG = gc.createRadialGradient(SRC_X, SRC_Y, 0, SRC_X, SRC_Y, 38);
+  srcG.addColorStop(0, 'rgba(255,215,0,0.9)');
+  srcG.addColorStop(1, 'transparent');
+  gc.fillStyle = srcG;
+  gc.beginPath(); gc.arc(SRC_X, SRC_Y, 38, 0, Math.PI*2); gc.fill();
+
+  // Lamp base
+  gc.globalAlpha = 0.8;
+  gc.fillStyle = '#ffd700';
+  gc.beginPath(); gc.arc(SRC_X, SRC_Y, 10, 0, Math.PI*2); gc.fill();
+
+  // ── Angle guide arc ──────────────────────────────────────────
+  gc.globalAlpha = 0.12;
+  gc.strokeStyle = '#ffd700';
+  gc.lineWidth = 2;
+  gc.beginPath();
+  gc.arc(SRC_X, SRC_Y, gcH * 0.18, ANGLE_MIN, ANGLE_MAX);
+  gc.stroke();
+  // Tick marks for left/center/right
+  [ANGLE_MIN, -Math.PI/2, ANGLE_MAX].forEach(a => {
+    gc.globalAlpha = 0.18;
+    gc.beginPath();
+    gc.moveTo(SRC_X + Math.cos(a)*gcH*0.15, SRC_Y + Math.sin(a)*gcH*0.15);
+    gc.lineTo(SRC_X + Math.cos(a)*gcH*0.21, SRC_Y + Math.sin(a)*gcH*0.21);
+    gc.stroke();
+  });
+
+  // ── Star ──────────────────────────────────────────────────────
+  if (gStar) {
+    const litRatio = gStar.litFrames / LIT_HOLD;
+    const pop = gStar.popAnim;
+    const isLit = litRatio > 0;
+
+    // Halo when lit
+    if (isLit) {
+      gc.globalAlpha = litRatio * 0.45;
+      const halo = gc.createRadialGradient(gStar.x, gStar.y, 0, gStar.x, gStar.y, 55 + litRatio*20);
+      halo.addColorStop(0, '#ffd700');
+      halo.addColorStop(1, 'transparent');
+      gc.fillStyle = halo;
+      gc.beginPath(); gc.arc(gStar.x, gStar.y, 75, 0, Math.PI*2); gc.fill();
+    }
+
+    // Progress ring (how long lit)
+    if (isLit) {
+      gc.globalAlpha = 0.7;
+      gc.strokeStyle = '#ffd700';
+      gc.lineWidth = 3;
+      gc.beginPath();
+      gc.arc(gStar.x, gStar.y, 32, -Math.PI/2, -Math.PI/2 + litRatio*Math.PI*2);
+      gc.stroke();
+    }
+
+    // Star shape
+    gc.save();
+    gc.translate(gStar.x, gStar.y);
+    gc.scale(pop, pop);
+    gc.rotate(Date.now() * 0.0008);
+    gc.globalAlpha = 0.25 + isLit * litRatio * 0.75;
+    gc.fillStyle = isLit ? '#fffde7' : '#b8960c';
+    gc.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const r = i % 2 ? 9 : 26;
+      const a = i * Math.PI / 5 - Math.PI / 2;
+      i===0 ? gc.moveTo(Math.cos(a)*r, Math.sin(a)*r)
+             : gc.lineTo(Math.cos(a)*r, Math.sin(a)*r);
+    }
+    gc.closePath(); gc.fill();
+    gc.restore();
+
+    // Dim ring (unlit)
+    if (!isLit) {
+      gc.globalAlpha = 0.2;
+      gc.strokeStyle = '#ffd700';
+      gc.lineWidth = 1.5;
+      gc.beginPath(); gc.arc(gStar.x, gStar.y, 32, 0, Math.PI*2); gc.stroke();
+    }
+  }
+
+  // ── Burst particles ──
+  gParticles.forEach(p => {
+    gc.globalAlpha = p.life * 0.8;
+    gc.fillStyle = '#ffd700';
+    gc.beginPath(); gc.arc(p.x, p.y, p.r*p.life, 0, Math.PI*2); gc.fill();
+  });
+
+  // ── Hit flash ──
+  if (gHitFlash > 0) {
+    gHitFlash--;
+    gc.globalAlpha = gHitFlash / 22 * 0.3;
+    gc.fillStyle = '#ffd700';
+    gc.fillRect(0, 0, gcW, gcH);
+  }
+
+  // ── Drag hint ──
+  gc.globalAlpha = 0.3 + 0.15*Math.abs(Math.sin(Date.now()*0.003));
+  gc.fillStyle = '#ffd700';
+  gc.font = `${Math.round(gcW*0.032)}px 'Share Tech Mono',monospace`;
+  gc.textAlign = 'center';
+  gc.textBaseline = 'middle';
+  gc.fillText('◀  ドラッグでライトを傾ける  ▶', SRC_X, gcH * 0.87);
+
+  gc.globalAlpha = 1;
+  gRafId = requestAnimationFrame(gDraw);
+}
+
+gcEl.addEventListener('mousemove',  e => { const r=gcEl.getBoundingClientRect(); gSetTarget(e.clientX-r.left); });
+gcEl.addEventListener('mousedown',  e => { const r=gcEl.getBoundingClientRect(); gSetTarget(e.clientX-r.left); });
+gcEl.addEventListener('touchstart', e => { e.preventDefault(); const r=gcEl.getBoundingClientRect(); gSetTarget(e.touches[0].clientX-r.left); }, {passive:false});
+gcEl.addEventListener('touchmove',  e => { e.preventDefault(); const r=gcEl.getBoundingClientRect(); gSetTarget(e.touches[0].clientX-r.left); }, {passive:false});
+
+function startGame() {
+  gRunning = true;
+  gSpawnStar();
+  document.getElementById('game-ui').style.display = 'flex';
+  gcEl.style.display = 'block';
+  gDraw();
+}
+
 const W=()=>window.innerWidth,H=()=>window.innerHeight;
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 function ease(t){return t<0.5?2*t*t:1-(-2*t+2)**2/2;}
@@ -220,7 +472,7 @@ const tapOv=document.getElementById('tap-ov');
 function startAll(){
   tapOv.style.opacity='0';
   setTimeout(()=>tapOv.style.display='none',600);
-  img.complete?run():img.onload=run;
+  startGame();
 }
 tapOv.addEventListener('click',startAll,{once:true});
 tapOv.addEventListener('touchend',e=>{e.preventDefault();startAll();},{once:true,passive:false});

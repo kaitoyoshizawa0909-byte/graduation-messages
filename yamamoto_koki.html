@@ -43,7 +43,7 @@ canvas{position:fixed;inset:0;pointer-events:none;}
 #final-name{font-family:'Shippori Mincho',serif;font-size:clamp(2.2rem,11vw,4.5rem);font-weight:800;letter-spacing:0.12em;color:#fff;text-shadow:0 0 40px #4fc3f788;opacity:0;transform:translateY(16px);transition:opacity 0.7s ease,transform 0.7s cubic-bezier(0.22,1,0.36,1);}
 #final-msg{font-family:'Shippori Mincho',serif;font-size:clamp(0.9rem,4.5vw,1.4rem);font-weight:400;letter-spacing:0.15em;color:#ffd54f;text-shadow:0 0 20px #ffd54f88;opacity:0;transform:translateY(12px);transition:opacity 0.7s ease 0.25s,transform 0.7s ease 0.25s;}
 #final-from{font-family:'Share Tech Mono',monospace;font-size:clamp(1.4rem,5.5vw,1.9rem);letter-spacing:0.35em;color:rgba(255,255,255,0.45);opacity:0;transition:opacity 0.7s ease 0.6s;}
-#flash{position:fixed;inset:0;z-index:20;pointer-events:none;background:#fff;opacity:0;transition:opacity 0.25s;}
+#flash{position:fixed;inset:0;z-index:55;pointer-events:none;background:#fff;opacity:0;transition:opacity 0.25s;}
 #scan{position:fixed;inset:0;z-index:15;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.06) 3px,rgba(0,0,0,0.06) 4px);}
 </style>
 </head>
@@ -70,7 +70,90 @@ canvas{position:fixed;inset:0;pointer-events:none;}
     <div id="final-from">✦ &nbsp; Yoshy &nbsp; ✦</div>
   </div>
 </div>
+<canvas id="c-game" style="position:fixed;inset:0;z-index:40;pointer-events:auto;display:none;cursor:crosshair;"></canvas>
+<div id="game-ui" style="position:fixed;inset:0;z-index:45;display:none;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:8vh;pointer-events:none;">
+  <div style="font-family:'Share Tech Mono',monospace;font-size:clamp(0.55rem,2.5vw,0.82rem);letter-spacing:0.3em;color:#4fc3f7;margin-bottom:0.7rem;opacity:0.85;">☄️ 隕石を撃ち落とせ！</div>
+  <div style="display:flex;align-items:baseline;gap:0.25rem;">
+    <span id="g-count" style="font-family:'Shippori Mincho',serif;font-size:clamp(2.2rem,11vw,3.5rem);font-weight:800;line-height:1;color:#fff;">12</span>
+    <span style="font-family:'Shippori Mincho',serif;font-size:clamp(0.9rem,4vw,1.3rem);color:rgba(255,255,255,0.6);">残り</span>
+  </div>
+  <div style="width:min(220px,52vw);height:3px;background:rgba(255,255,255,0.15);border-radius:2px;margin-top:0.9rem;overflow:hidden;">
+    <div id="g-fill" style="height:100%;width:0%;background:#4fc3f7;border-radius:2px;transition:width 0.18s ease;"></div>
+  </div>
+</div>
+<div id="game-clear" style="position:fixed;inset:0;z-index:46;display:flex;align-items:center;justify-content:center;font-family:'Share Tech Mono',monospace;font-size:clamp(1.8rem,9vw,3.2rem);letter-spacing:0.5em;color:#fff;opacity:0;pointer-events:none;transition:opacity 0.3s;text-shadow:0 0 35px #4fc3f7;">✦ CLEAR! ✦</div>
 <script>
+
+const gcEl=document.getElementById('c-game');const gc=gcEl.getContext('2d');
+gcEl.width=window.innerWidth;gcEl.height=window.innerHeight;
+const gcW=gcEl.width,gcH=gcEl.height;
+let gRunning=false,gAsts=[],gBullets=[],gScore=0,gLastTs=0,gRafId=0,gSpawnT=0;
+const CANNON={x:gcW*0.5,y:gcH*0.92,angle:-Math.PI/2};
+function gSpawn(){gAsts.push({x:gcW*0.05+Math.random()*gcW*0.9,y:-30,vy:1.5+Math.random()*2,vx:(Math.random()-0.5)*1.2,r:14+Math.random()*10,rot:Math.random()*Math.PI*2,rotV:(Math.random()-0.5)*0.04});}
+function gShoot(px,py){
+  if(!gRunning)return;
+  const dx=px-CANNON.x,dy=py-CANNON.y,len=Math.sqrt(dx*dx+dy*dy)||1;
+  const spd=18;
+  gBullets.push({x:CANNON.x,y:CANNON.y,vx:dx/len*spd,vy:dy/len*spd,life:1});
+  sw(400,1200,'sawtooth',0,0.12,0.12);pn(0,0.06,0.18,300,0.6);
+  CANNON.angle=Math.atan2(dy,dx);
+}
+function gLoop(ts){
+  if(!gRunning)return;
+  const dt=Math.min((ts-gLastTs)/16,2.5);gLastTs=ts;gSpawnT+=dt;
+  if(gSpawnT>80&&gAsts.length<6){gSpawnT=0;gSpawn();}
+  // move
+  gBullets.forEach(b=>{b.x+=b.vx*dt;b.y+=b.vy*dt;b.life-=0.015*dt;});
+  gBullets=gBullets.filter(b=>b.life>0&&b.y>-20&&b.x>-20&&b.x<gcW+20);
+  gAsts.forEach(a=>{a.x+=a.vx*dt;a.y+=a.vy*dt;a.rot+=a.rotV*dt;});
+  gAsts=gAsts.filter(a=>a.y<gcH+60);
+  // collision
+  for(let bi=gBullets.length-1;bi>=0;bi--){
+    const b=gBullets[bi];
+    for(let ai=gAsts.length-1;ai>=0;ai--){
+      const a=gAsts[ai];
+      if(Math.hypot(b.x-a.x,b.y-a.y)<a.r+8){
+        gBullets.splice(bi,1);gAsts.splice(ai,1);gScore++;
+        pn(0,0.12,0.25,300,0.5);sw(600,80,'sine',0,0.2,0.15);
+        document.getElementById('g-count').textContent=Math.max(0,12-gScore);
+        document.getElementById('g-fill').style.width=(gScore/12*100)+'%';
+        for(let i=0;i<6;i++)gBullets.push({x:b.x,y:b.y,vx:(Math.random()-0.5)*6,vy:(Math.random()-0.5)*6,life:0.4,debris:true});
+        if(gScore>=12){gRunning=false;chord([523,659,784,1047],'sine',0,1.2,0.12);for(let i=0;i<5;i++)pt(1047+i*130,'sine',i*0.07,0.8,0.07);doFlash(140,'#4fc3f7');document.getElementById('game-clear').style.opacity='1';setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>{const el=document.getElementById(id);el.style.transition='opacity 0.6s';el.style.opacity='0';});setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>document.getElementById(id).style.display='none');run();},680);},950);}
+        break;
+      }
+    }
+  }
+  // draw
+  gc.clearRect(0,0,gcW,gcH);
+  // cannon
+  gc.save();gc.translate(CANNON.x,CANNON.y);gc.rotate(CANNON.angle+Math.PI/2);
+  gc.fillStyle='#4fc3f7';gc.globalAlpha=0.9;gc.beginPath();gc.moveTo(0,-28);gc.lineTo(10,10);gc.lineTo(-10,10);gc.closePath();gc.fill();
+  gc.restore();
+  // asteroids
+  gAsts.forEach(a=>{
+    gc.save();gc.translate(a.x,a.y);gc.rotate(a.rot);gc.globalAlpha=0.88;
+    gc.fillStyle='#b0bec5';gc.beginPath();
+    const pts2=[[0,-a.r],[a.r*0.65,-a.r*0.4],[a.r*0.85,a.r*0.3],[a.r*0.2,a.r*0.8],[-a.r*0.5,a.r*0.65],[-a.r*0.85,-a.r*0.15],[-a.r*0.3,-a.r*0.7]];
+    pts2.forEach((p,i)=>i===0?gc.moveTo(p[0],p[1]):gc.lineTo(p[0],p[1]));
+    gc.closePath();gc.fill();gc.restore();
+  });
+  // bullets
+  gBullets.forEach(b=>{
+    gc.globalAlpha=b.life;gc.fillStyle=b.debris?'#ff6d00':'#4fc3f7';
+    gc.beginPath();gc.arc(b.x,b.y,b.debris?3:5,0,Math.PI*2);gc.fill();
+  });
+  gc.globalAlpha=1;
+  gRafId=requestAnimationFrame(gLoop);
+}
+gcEl.addEventListener('click',e=>{const r=gcEl.getBoundingClientRect();gShoot(e.clientX-r.left,e.clientY-r.top);});
+gcEl.addEventListener('touchstart',e=>{e.preventDefault();const r=gcEl.getBoundingClientRect(),t2=e.changedTouches[0];gShoot(t2.clientX-r.left,t2.clientY-r.top);},{passive:false});
+function startGame(){
+  gRunning=true;gSpawn();setTimeout(gSpawn,400);
+  document.getElementById('game-ui').style.display='flex';
+  gcEl.style.display='block';
+  requestAnimationFrame(ts=>{gLastTs=ts;gLoop(ts);});
+}
+
 const W=()=>window.innerWidth,H=()=>window.innerHeight;
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 function ease(t){return t<0.5?2*t*t:1-(-2*t+2)**2/2;}
@@ -283,7 +366,7 @@ const tapOv=document.getElementById('tap-ov');
 function startAll(){
   tapOv.style.opacity='0';
   setTimeout(()=>tapOv.style.display='none',600);
-  img.complete?run():img.onload=run;
+  startGame();
 }
 tapOv.addEventListener('click',startAll,{once:true});
 tapOv.addEventListener('touchend',e=>{e.preventDefault();startAll();},{once:true,passive:false});

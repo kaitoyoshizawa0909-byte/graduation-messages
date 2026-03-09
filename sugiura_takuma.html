@@ -43,7 +43,7 @@ canvas{position:fixed;inset:0;pointer-events:none;}
 #final-name{font-family:'Shippori Mincho',serif;font-size:clamp(2.2rem,11vw,4.5rem);font-weight:800;letter-spacing:0.12em;color:#fff;text-shadow:0 0 40px #b3e5fc88;opacity:0;transform:translateY(16px);transition:opacity 0.7s ease,transform 0.7s cubic-bezier(0.22,1,0.36,1);}
 #final-msg{font-family:'Shippori Mincho',serif;font-size:clamp(0.9rem,4.5vw,1.4rem);font-weight:400;letter-spacing:0.15em;color:#e1f5fe;text-shadow:0 0 20px #e1f5fe88;opacity:0;transform:translateY(12px);transition:opacity 0.7s ease 0.25s,transform 0.7s ease 0.25s;}
 #final-from{font-family:'Share Tech Mono',monospace;font-size:clamp(1.4rem,5.5vw,1.9rem);letter-spacing:0.35em;color:rgba(255,255,255,0.45);opacity:0;transition:opacity 0.7s ease 0.6s;}
-#flash{position:fixed;inset:0;z-index:20;pointer-events:none;background:#fff;opacity:0;transition:opacity 0.25s;}
+#flash{position:fixed;inset:0;z-index:55;pointer-events:none;background:#fff;opacity:0;transition:opacity 0.25s;}
 #scan{position:fixed;inset:0;z-index:15;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.06) 3px,rgba(0,0,0,0.06) 4px);}
 </style>
 </head>
@@ -70,7 +70,201 @@ canvas{position:fixed;inset:0;pointer-events:none;}
     <div id="final-from">✦ &nbsp; Yoshy &nbsp; ✦</div>
   </div>
 </div>
+<canvas id="c-game" style="position:fixed;inset:0;z-index:40;pointer-events:auto;display:none;cursor:crosshair;"></canvas>
+<div id="game-ui" style="position:fixed;inset:0;z-index:45;display:none;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:8vh;pointer-events:none;">
+  <div style="font-family:'Share Tech Mono',monospace;font-size:clamp(0.55rem,2.5vw,0.82rem);letter-spacing:0.3em;color:#b3e5fc;margin-bottom:0.7rem;opacity:0.85;">❄️ バスケットで雪をキャッチ！</div>
+  <div style="display:flex;align-items:baseline;gap:0.25rem;">
+    <span id="g-count" style="font-family:'Shippori Mincho',serif;font-size:clamp(2.2rem,11vw,3.5rem);font-weight:800;line-height:1;color:#fff;">12</span>
+    <span style="font-family:'Shippori Mincho',serif;font-size:clamp(0.9rem,4vw,1.3rem);color:rgba(255,255,255,0.6);">残り</span>
+  </div>
+  <div style="width:min(220px,52vw);height:3px;background:rgba(255,255,255,0.15);border-radius:2px;margin-top:0.9rem;overflow:hidden;">
+    <div id="g-fill" style="height:100%;width:0%;background:#b3e5fc;border-radius:2px;transition:width 0.18s ease;"></div>
+  </div>
+</div>
+<div id="game-clear" style="position:fixed;inset:0;z-index:46;display:flex;align-items:center;justify-content:center;font-family:'Share Tech Mono',monospace;font-size:clamp(1.8rem,9vw,3.2rem);letter-spacing:0.5em;color:#fff;opacity:0;pointer-events:none;transition:opacity 0.3s;text-shadow:0 0 35px #b3e5fc;">✦ CLEAR! ✦</div>
 <script>
+
+const gcEl = document.getElementById('c-game');
+const gc = gcEl.getContext('2d');
+gcEl.width  = window.innerWidth;
+gcEl.height = window.innerHeight;
+const gcW = gcEl.width;
+const gcH = gcEl.height;
+
+const BSKT_W  = Math.min(gcW * 0.26, 130);
+const BSKT_H  = gcH * 0.055;
+const BSKT_Y  = gcH * 0.82;
+
+let gRunning  = false;
+let gFlakes   = [];
+let gScore    = 0;
+let gLastTs   = 0;
+let gSpawnT   = 0;
+let gBsktX    = gcW / 2;   // current basket X (center)
+let gTargetX  = gcW / 2;   // target basket X (set by pointer)
+let gPointerDown = false;
+let gRafId    = 0;
+
+function gSpawn() {
+  gFlakes.push({
+    x:     gcW * 0.06 + Math.random() * gcW * 0.88,
+    y:     -18,
+    vy:    1.6 + Math.random() * 2.0,
+    vx:    (Math.random() - 0.5) * 1.0,
+    rot:   Math.random() * Math.PI * 2,
+    rotV:  0.01 + Math.random() * 0.015,
+    wob:   Math.random() * Math.PI * 2,
+    r:     11 + Math.random() * 7,
+    alpha: 1.0,
+    caught: false
+  });
+}
+
+function gLoop(ts) {
+  if (!gRunning) return;
+
+  const dt = Math.min((ts - gLastTs) / 16, 2.5);
+  gLastTs = ts;
+  gSpawnT += dt;
+
+  if (gSpawnT > 68 && gFlakes.filter(f => !f.caught).length < 5) {
+    gSpawnT = 0;
+    gSpawn();
+  }
+
+  // Smooth basket toward target
+  gBsktX += (gTargetX - gBsktX) * 0.18;
+  gBsktX = Math.max(BSKT_W / 2 + 4, Math.min(gcW - BSKT_W / 2 - 4, gBsktX));
+
+  // Update flakes
+  for (let i = 0; i < gFlakes.length; i++) {
+    const f = gFlakes[i];
+    if (f.caught) {
+      f.alpha = Math.max(0, f.alpha - 0.05);
+      continue;
+    }
+    f.wob += 0.022;
+    f.x += f.vx + Math.sin(f.wob) * 0.4;
+    f.y += f.vy * dt;
+    f.rot += f.rotV;
+
+    // Catch check
+    if (f.y + f.r > BSKT_Y &&
+        f.y - f.r < BSKT_Y + BSKT_H &&
+        Math.abs(f.x - gBsktX) < BSKT_W / 2 + f.r * 0.5) {
+      f.caught = true;
+      gScore++;
+      pt(1047 + gScore * 40, 'sine', 0, 0.2, 0.12);
+      pt(1319, 'sine', 0.04, 0.15, 0.08);
+      const cnt = document.getElementById('g-count');
+      if (cnt) cnt.textContent = Math.max(0, 12 - gScore);
+      const fill = document.getElementById('g-fill');
+      if (fill) fill.style.width = (gScore / 12 * 100) + '%';
+      if (gScore >= 12) { gRunning=false;chord([523,659,784,1047],'sine',0,1.2,0.12);for(let i=0;i<5;i++)pt(1047+i*130,'sine',i*0.07,0.8,0.07);doFlash(140,'#b3e5fc');document.getElementById('game-clear').style.opacity='1';setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>{const el=document.getElementById(id);el.style.transition='opacity 0.6s';el.style.opacity='0';});setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>document.getElementById(id).style.display='none');run();},680);},950); return; }
+    }
+  }
+
+  // Remove off-screen / faded
+  gFlakes = gFlakes.filter(f => f.y < gcH + 40 && (!f.caught || f.alpha > 0));
+
+  // ── Draw ──
+  gc.clearRect(0, 0, gcW, gcH);
+
+  // Basket
+  gc.save();
+  gc.translate(gBsktX, BSKT_Y);
+  gc.globalAlpha = 0.92;
+  gc.fillStyle = 'rgba(179,229,252,0.12)';
+  gc.strokeStyle = '#b3e5fc';
+  gc.lineWidth = 2.5;
+  gc.beginPath();
+  gc.moveTo(-BSKT_W / 2, 0);
+  gc.lineTo(-BSKT_W / 2 + BSKT_W * 0.1, BSKT_H);
+  gc.lineTo( BSKT_W / 2 - BSKT_W * 0.1, BSKT_H);
+  gc.lineTo( BSKT_W / 2, 0);
+  gc.closePath();
+  gc.fill();
+  gc.stroke();
+  gc.restore();
+
+  // Snowflakes
+  for (let i = 0; i < gFlakes.length; i++) {
+    const f = gFlakes[i];
+    gc.save();
+    gc.translate(f.x, f.y);
+    gc.rotate(f.rot);
+    gc.globalAlpha = f.alpha * 0.88;
+    gc.strokeStyle = '#b3e5fc';
+    gc.lineWidth = 1.2;
+    for (let j = 0; j < 6; j++) {
+      gc.save();
+      gc.rotate(j * Math.PI / 3);
+      gc.beginPath();
+      gc.moveTo(0, 0);       gc.lineTo(0, f.r);
+      gc.moveTo(0, f.r*0.5); gc.lineTo(-f.r*0.25, f.r*0.7);
+      gc.moveTo(0, f.r*0.5); gc.lineTo( f.r*0.25, f.r*0.7);
+      gc.stroke();
+      gc.restore();
+    }
+    gc.globalAlpha = f.alpha * 0.9;
+    gc.fillStyle = 'rgba(255,255,255,0.9)';
+    gc.beginPath();
+    gc.arc(0, 0, f.r * 0.22, 0, Math.PI * 2);
+    gc.fill();
+    gc.restore();
+  }
+
+  // Drag hint (arrow track)
+  if (!gPointerDown) {
+    gc.globalAlpha = 0.2 + 0.12 * Math.abs(Math.sin(Date.now() * 0.003));
+    gc.fillStyle = '#b3e5fc';
+    gc.font = `${Math.round(gcW * 0.065)}px monospace`;
+    gc.textAlign = 'center';
+    gc.textBaseline = 'middle';
+    gc.fillText('◀ ドラッグ ▶', gcW / 2, gcH * 0.5);
+  }
+  gc.globalAlpha = 1;
+
+  gRafId = requestAnimationFrame(gLoop);
+}
+
+// Pointer / touch: move basket to follow X
+function gMove(px) {
+  gPointerDown = true;
+  gTargetX = Math.max(BSKT_W/2+4, Math.min(gcW - BSKT_W/2 - 4, px));
+}
+
+gcEl.addEventListener('mousemove', e => {
+  if (!gRunning) return;
+  const r = gcEl.getBoundingClientRect();
+  gMove(e.clientX - r.left);
+});
+gcEl.addEventListener('mousedown', e => {
+  if (!gRunning) return;
+  const r = gcEl.getBoundingClientRect();
+  gMove(e.clientX - r.left);
+});
+gcEl.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (!gRunning) return;
+  const r = gcEl.getBoundingClientRect();
+  gMove(e.touches[0].clientX - r.left);
+}, { passive: false });
+gcEl.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (!gRunning) return;
+  const r = gcEl.getBoundingClientRect();
+  gMove(e.touches[0].clientX - r.left);
+}, { passive: false });
+
+function startGame() {
+  gRunning = true;
+  gSpawn(); gSpawn();
+  document.getElementById('game-ui').style.display = 'flex';
+  gcEl.style.display = 'block';
+  requestAnimationFrame(ts => { gLastTs = ts; gLoop(ts); });
+}
+
 const W=()=>window.innerWidth,H=()=>window.innerHeight;
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 function ease(t){return t<0.5?2*t*t:1-(-2*t+2)**2/2;}
@@ -281,7 +475,7 @@ const tapOv=document.getElementById('tap-ov');
 function startAll(){
   tapOv.style.opacity='0';
   setTimeout(()=>tapOv.style.display='none',600);
-  img.complete?run():img.onload=run;
+  startGame();
 }
 tapOv.addEventListener('click',startAll,{once:true});
 tapOv.addEventListener('touchend',e=>{e.preventDefault();startAll();},{once:true,passive:false});

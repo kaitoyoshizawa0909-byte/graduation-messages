@@ -26,7 +26,7 @@ canvas{position:fixed;inset:0;pointer-events:none;}
 #final-name{font-family:'Shippori Mincho',serif;font-size:clamp(2.2rem,11vw,4.5rem);font-weight:800;letter-spacing:0.12em;color:#fff;text-shadow:0 0 40px #c8a96e88;opacity:0;transform:translateY(16px);transition:opacity 0.7s ease,transform 0.7s cubic-bezier(0.22,1,0.36,1);}
 #final-msg{font-family:'Shippori Mincho',serif;font-size:clamp(0.9rem,4.5vw,1.4rem);font-weight:400;letter-spacing:0.15em;color:#f5e6c8;text-shadow:0 0 20px #f5e6c888;opacity:0;transform:translateY(12px);transition:opacity 0.7s ease 0.25s,transform 0.7s ease 0.25s;}
 #final-from{font-family:'Share Tech Mono',monospace;font-size:clamp(1.4rem,5.5vw,1.9rem);letter-spacing:0.35em;color:rgba(255,255,255,0.45);opacity:0;transition:opacity 0.7s ease 0.6s;}
-#flash{position:fixed;inset:0;z-index:20;pointer-events:none;background:#fff;opacity:0;transition:opacity 0.25s;}
+#flash{position:fixed;inset:0;z-index:55;pointer-events:none;background:#fff;opacity:0;transition:opacity 0.25s;}
 #scan{position:fixed;inset:0;z-index:15;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.06) 3px,rgba(0,0,0,0.06) 4px);}
 </style>
 </head>
@@ -48,11 +48,148 @@ canvas{position:fixed;inset:0;pointer-events:none;}
   </div>
   <div id="final-block">
     <div id="final-name">林憲生</div>
-    <div id="final-msg">もみじ饅頭がお土産で1番うまい</div>
+    <div id="final-msg">もみじまんじゅうがお土産で1番うまい</div>
     <div id="final-from">✦ &nbsp; Yoshy &nbsp; ✦</div>
   </div>
 </div>
+<canvas id="c-game" style="position:fixed;inset:0;z-index:40;pointer-events:auto;display:none;cursor:crosshair;"></canvas>
+<div id="game-ui" style="position:fixed;inset:0;z-index:45;display:none;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:8vh;pointer-events:none;">
+  <div style="font-family:'Share Tech Mono',monospace;font-size:clamp(0.55rem,2.5vw,0.82rem);letter-spacing:0.3em;color:#c8a96e;margin-bottom:0.7rem;opacity:0.85;">🖌 ゾーンでキープしろ！</div>
+  <div style="display:flex;align-items:baseline;gap:0.25rem;">
+    <span id="g-count" style="font-family:'Shippori Mincho',serif;font-size:clamp(2.2rem,11vw,3.5rem);font-weight:800;line-height:1;color:#fff;">6</span>
+    <span style="font-family:'Shippori Mincho',serif;font-size:clamp(0.9rem,4vw,1.3rem);color:rgba(255,255,255,0.6);">残り</span>
+  </div>
+  <div style="width:min(220px,52vw);height:3px;background:rgba(255,255,255,0.15);border-radius:2px;margin-top:0.9rem;overflow:hidden;">
+    <div id="g-fill" style="height:100%;width:0%;background:#c8a96e;border-radius:2px;transition:width 0.18s ease;"></div>
+  </div>
+</div>
+<div id="game-clear" style="position:fixed;inset:0;z-index:46;display:flex;align-items:center;justify-content:center;font-family:'Share Tech Mono',monospace;font-size:clamp(1.8rem,9vw,3.2rem);letter-spacing:0.5em;color:#fff;opacity:0;pointer-events:none;transition:opacity 0.3s;text-shadow:0 0 35px #c8a96e;">✦ CLEAR! ✦</div>
 <script>
+
+const gcEl=document.getElementById('c-game');const gc=gcEl.getContext('2d');
+gcEl.width=window.innerWidth;gcEl.height=window.innerHeight;
+const gcW=gcEl.width,gcH=gcEl.height;
+const MX=gcW/2,MY=gcH/2;
+const TOTAL=5;
+const TZ_W_BASE=0.18; const TZ_W_MIN=0.06;
+const HOLD_SECS=3.0;
+const FILL_SPEED=0.011;   // rises when held
+const DRAIN_SPEED=0.011;  // falls when released (symmetric = balanced by rhythm)
+const PROG_SPEED=1/(HOLD_SECS*60);  // progress per frame in zone
+const PROG_DRAIN=PROG_SPEED*0.4;    // slowly drains when out of zone
+
+let gRunning=false,gHolding=false,gFill=0,gProgress=0,gScore=0,gWaiting=false;
+let gTzCenter=0.5;
+let gFeedback='',gFbTimer=0,gRafId=0;
+
+const BH=gcH*0.48,BW=20;
+const BX=MX+gcW*0.24,BY=MY-BH/2;
+
+function gCurrentTzW(){ return Math.max(TZ_W_MIN, TZ_W_BASE - gScore*(TZ_W_BASE-TZ_W_MIN)/(TOTAL-1)); }
+function gRandTarget(){
+  const w=gCurrentTzW();
+  gTzCenter=w/2+0.10+Math.random()*(1-w-0.20);
+  gProgress=0; gFill=0; gWaiting=false;
+}
+function gInZone(){ const w=gCurrentTzW(); return gFill>=gTzCenter-w/2 && gFill<=gTzCenter+w/2; }
+
+function gDraw(){
+  if(!gRunning)return;
+
+  // Move fill
+  if(gHolding) gFill=Math.min(1,gFill+FILL_SPEED);
+  else         gFill=Math.max(0,gFill-DRAIN_SPEED);
+
+  // Progress: accumulates ONLY while inside zone (no hold required — just be there)
+  const inZone=gInZone();
+  if(inZone&&!gWaiting){
+    gProgress=Math.min(1,gProgress+PROG_SPEED);
+    if(gProgress>=1){
+      gWaiting=true; gProgress=0;
+      gScore++;
+      chord([440,554,659,880],'sine',0,0.7,0.12);
+      gFeedback='キープ！';gFbTimer=45;
+      document.getElementById('g-count').textContent=Math.max(0,TOTAL-gScore);
+      document.getElementById('g-fill').style.width=(gScore/TOTAL*100)+'%';
+      if(gScore>=TOTAL){gRunning=false;chord([523,659,784,1047],'sine',0,1.2,0.12);for(let i=0;i<5;i++)pt(1047+i*130,'sine',i*0.07,0.8,0.07);doFlash(140,'#c8a96e');document.getElementById('game-clear').style.opacity='1';setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>{const el=document.getElementById(id);el.style.transition='opacity 0.6s';el.style.opacity='0';});setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>document.getElementById(id).style.display='none');run();},680);},950);return;}
+      setTimeout(()=>gRandTarget(),500);
+    }
+  } else {
+    gProgress=Math.max(0,gProgress-PROG_DRAIN);
+  }
+
+  gc.clearRect(0,0,gcW,gcH);
+
+  // Ink blob
+  const blobR=gcW*0.14*(0.4+gFill*0.65);
+  gc.globalAlpha=0.8;
+  const g2=gc.createRadialGradient(MX,MY,0,MX,MY,blobR);
+  g2.addColorStop(0,'#3a2a10');g2.addColorStop(0.7,'#c8a96e');g2.addColorStop(1,'rgba(200,169,110,0)');
+  gc.fillStyle=g2;gc.beginPath();gc.arc(MX,MY,blobR,0,Math.PI*2);gc.fill();
+
+  // Progress arc around blob
+  if(gProgress>0){
+    gc.globalAlpha=0.85;
+    gc.strokeStyle=inZone?'#76ff03':'rgba(118,255,3,0.4)';
+    gc.lineWidth=5;
+    gc.beginPath();
+    gc.arc(MX,MY,blobR+10,-Math.PI/2,-Math.PI/2+gProgress*Math.PI*2);
+    gc.stroke();
+    if(inZone&&gProgress>0&&Math.floor(gProgress*HOLD_SECS*60)%60===0)
+      pt(660+gScore*60,'sine',0,0.1,0.06);
+  }
+
+  // Vertical meter bar
+  gc.globalAlpha=0.2;gc.fillStyle='#c8a96e';
+  gc.beginPath();gc.roundRect(BX,BY,BW,BH,BW/2);gc.fill();
+
+  // Target zone
+  const _tzw=gCurrentTzW();
+  const tzY=BY+BH*(1-(gTzCenter+_tzw/2));
+  const tzH=BH*_tzw;
+  gc.globalAlpha=inZone?0.85:0.55;gc.fillStyle='#76ff03';
+  gc.beginPath();gc.roundRect(BX,tzY,BW,tzH,BW/2);gc.fill();
+
+  // Fill level
+  gc.globalAlpha=0.9;gc.fillStyle=inZone?'#76ff03':'#c8a96e';
+  gc.beginPath();gc.roundRect(BX,BY+BH*(1-gFill),BW,BH*gFill,BW/2);gc.fill();
+
+  // Hint
+  const hint=inZone?'そこをキープ！':gHolding?'離せ！':'押し続けろ';
+  gc.globalAlpha=0.55+(gHolding?0:0.3*Math.abs(Math.sin(Date.now()*0.004)));
+  gc.fillStyle='#fff';gc.font=`${Math.round(gcW*0.038)}px 'Share Tech Mono',monospace`;
+  gc.textAlign='center';gc.textBaseline='middle';
+  gc.fillText(hint,MX,MY+gcH*0.26);
+
+  // Round
+  gc.globalAlpha=0.6;gc.font=`${Math.round(gcW*0.032)}px 'Share Tech Mono',monospace`;
+  gc.fillText(`${gScore+1} / ${TOTAL}`,MX,MY-gcH*0.26);
+
+  // Feedback
+  if(gFbTimer>0){gFbTimer--;
+    gc.globalAlpha=gFbTimer/45;
+    gc.font=`bold ${Math.round(gcW*0.1)}px 'Shippori Mincho',serif`;
+    gc.fillStyle='#76ff03';gc.textAlign='center';gc.textBaseline='middle';
+    gc.fillText(gFeedback,MX,MY);
+  }
+  gc.globalAlpha=1;
+  gRafId=requestAnimationFrame(gDraw);
+}
+
+function gPress(){if(!gRunning)return;gHolding=true;sw(200,400,'sine',0,0.08,0.1);}
+function gRelease(){if(!gRunning||!gHolding)return;gHolding=false;}
+gcEl.addEventListener('mousedown',e=>{e.preventDefault();gPress();});
+gcEl.addEventListener('mouseup',gRelease);
+gcEl.addEventListener('touchstart',e=>{e.preventDefault();gPress();},{passive:false});
+gcEl.addEventListener('touchend',e=>{e.preventDefault();gRelease();},{passive:false});
+function startGame(){
+  gRunning=true;gRandTarget();
+  document.getElementById('game-ui').style.display='flex';
+  document.getElementById('g-count').textContent=TOTAL;
+  gcEl.style.display='block';
+  gDraw();
+}
+
 const W=()=>window.innerWidth,H=()=>window.innerHeight;
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 function ease(t){return t<0.5?2*t*t:1-(-2*t+2)**2/2;}
@@ -243,7 +380,7 @@ const tapOv=document.getElementById('tap-ov');
 function startAll(){
   tapOv.style.opacity='0';
   setTimeout(()=>tapOv.style.display='none',600);
-  img.complete?run():img.onload=run;
+  startGame();
 }
 tapOv.addEventListener('click',startAll,{once:true});
 tapOv.addEventListener('touchend',e=>{e.preventDefault();startAll();},{once:true,passive:false});

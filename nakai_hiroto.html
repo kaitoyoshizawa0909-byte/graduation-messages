@@ -26,7 +26,7 @@ canvas{position:fixed;inset:0;pointer-events:none;}
 #final-name{font-family:'Shippori Mincho',serif;font-size:clamp(2.2rem,11vw,4.5rem);font-weight:800;letter-spacing:0.12em;color:#fff;text-shadow:0 0 40px #e040fb88;opacity:0;transform:translateY(16px);transition:opacity 0.7s ease,transform 0.7s cubic-bezier(0.22,1,0.36,1);}
 #final-msg{font-family:'Shippori Mincho',serif;font-size:clamp(0.9rem,4.5vw,1.4rem);font-weight:400;letter-spacing:0.15em;color:#f8bbd9;text-shadow:0 0 20px #f8bbd988;opacity:0;transform:translateY(12px);transition:opacity 0.7s ease 0.25s,transform 0.7s ease 0.25s;}
 #final-from{font-family:'Share Tech Mono',monospace;font-size:clamp(1.4rem,5.5vw,1.9rem);letter-spacing:0.35em;color:rgba(255,255,255,0.45);opacity:0;transition:opacity 0.7s ease 0.6s;}
-#flash{position:fixed;inset:0;z-index:20;pointer-events:none;background:#fff;opacity:0;transition:opacity 0.25s;}
+#flash{position:fixed;inset:0;z-index:55;pointer-events:none;background:#fff;opacity:0;transition:opacity 0.25s;}
 #scan{position:fixed;inset:0;z-index:15;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.06) 3px,rgba(0,0,0,0.06) 4px);}
 </style>
 </head>
@@ -52,7 +52,82 @@ canvas{position:fixed;inset:0;pointer-events:none;}
     <div id="final-from">✦ &nbsp; Yoshy &nbsp; ✦</div>
   </div>
 </div>
+<canvas id="c-game" style="position:fixed;inset:0;z-index:40;pointer-events:auto;display:none;cursor:crosshair;"></canvas>
+<div id="game-ui" style="position:fixed;inset:0;z-index:45;display:none;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:8vh;pointer-events:none;">
+  <div style="font-family:'Share Tech Mono',monospace;font-size:clamp(0.55rem,2.5vw,0.82rem);letter-spacing:0.3em;color:#e040fb;margin-bottom:0.7rem;opacity:0.85;">🦋 タップして飛べ！</div>
+  <div style="display:flex;align-items:baseline;gap:0.25rem;">
+    <span id="g-count" style="font-family:'Shippori Mincho',serif;font-size:clamp(2.2rem,11vw,3.5rem);font-weight:800;line-height:1;color:#fff;">12</span>
+    <span style="font-family:'Shippori Mincho',serif;font-size:clamp(0.9rem,4vw,1.3rem);color:rgba(255,255,255,0.6);">残り</span>
+  </div>
+  <div style="width:min(220px,52vw);height:3px;background:rgba(255,255,255,0.15);border-radius:2px;margin-top:0.9rem;overflow:hidden;">
+    <div id="g-fill" style="height:100%;width:0%;background:#e040fb;border-radius:2px;transition:width 0.18s ease;"></div>
+  </div>
+</div>
+<div id="game-clear" style="position:fixed;inset:0;z-index:46;display:flex;align-items:center;justify-content:center;font-family:'Share Tech Mono',monospace;font-size:clamp(1.8rem,9vw,3.2rem);letter-spacing:0.5em;color:#fff;opacity:0;pointer-events:none;transition:opacity 0.3s;text-shadow:0 0 35px #e040fb;">✦ CLEAR! ✦</div>
 <script>
+
+const gcEl=document.getElementById('c-game');const gc=gcEl.getContext('2d');
+gcEl.width=window.innerWidth;gcEl.height=window.innerHeight;
+const gcW=gcEl.width,gcH=gcEl.height;
+let gRunning=false,gPipes=[],gScore=0,gPlayer={x:gcW*0.22,y:gcH/2,vy:0},gLastTs=0,gRafId=0,gPipeTimer=0,gAlive=true;
+const GRAVITY=0.45,FLAP=-10,PIPE_SPD=4,GAP=gcH*0.28,PIPE_W=42;
+function gFlap(){
+  if(!gRunning)return;
+  if(!gAlive){gRevive();return;}
+  gPlayer.vy=FLAP;sw(200,500,'sine',0,0.15,0.12);
+}
+function gRevive(){gPlayer.y=gcH/2;gPlayer.vy=0;gPipes=gPipes.filter(p=>p.x>gPlayer.x+100);gAlive=true;}
+function gLoop(ts){
+  if(!gRunning)return;
+  const dt=Math.min((ts-gLastTs)/16,2.5);gLastTs=ts;
+  if(!gAlive){gRafId=requestAnimationFrame(gLoop);return;}
+  gPipeTimer+=dt;
+  if(gPipeTimer>120){gPipeTimer=0;const top=gcH*0.1+Math.random()*(gcH*0.55);gPipes.push({x:gcW+20,top,scored:false});}
+  gPlayer.vy+=GRAVITY*dt;gPlayer.y+=gPlayer.vy*dt;
+  // wall collisions
+  if(gPlayer.y<10||gPlayer.y>gcH-10){gAlive=false;pn(0,0.2,0.2,200,0.5);gRafId=requestAnimationFrame(gLoop);return;}
+  gPipes.forEach(p=>{p.x-=PIPE_SPD*dt;
+    if(!p.scored&&p.x+PIPE_W<gPlayer.x){p.scored=true;gScore++;
+      pt(440+gScore*35,'sine',0,0.18,0.1);
+      document.getElementById('g-count').textContent=Math.max(0,12-gScore);
+      document.getElementById('g-fill').style.width=(gScore/12*100)+'%';
+      if(gScore>=12){gRunning=false;chord([523,659,784,1047],'sine',0,1.2,0.12);for(let i=0;i<5;i++)pt(1047+i*130,'sine',i*0.07,0.8,0.07);doFlash(140,'#e040fb');document.getElementById('game-clear').style.opacity='1';setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>{const el=document.getElementById(id);el.style.transition='opacity 0.6s';el.style.opacity='0';});setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>document.getElementById(id).style.display='none');run();},680);},950);return;}
+    }
+    if(gPlayer.x+14>p.x&&gPlayer.x-14<p.x+PIPE_W){
+      if(gPlayer.y-14<p.top||gPlayer.y+14>p.top+GAP){
+        gAlive=false;pn(0,0.2,0.2,180,0.5);
+      }
+    }
+  });
+  gPipes=gPipes.filter(p=>p.x>-80);
+  // draw
+  gc.clearRect(0,0,gcW,gcH);
+  gPipes.forEach(p=>{
+    gc.globalAlpha=0.7;gc.fillStyle='rgba(224,64,251,0.12)';
+    gc.fillRect(p.x,0,PIPE_W,p.top);gc.fillRect(p.x,p.top+GAP,PIPE_W,gcH-p.top-GAP);
+    gc.strokeStyle='#e040fb';gc.lineWidth=2;
+    gc.strokeRect(p.x,0,PIPE_W,p.top);gc.strokeRect(p.x,p.top+GAP,PIPE_W,gcH-p.top-GAP);
+  });
+  const flap=Math.abs(Math.cos(Date.now()*0.12));
+  gc.save();gc.translate(gPlayer.x,gPlayer.y);gc.rotate(Math.min(Math.max(gPlayer.vy*0.06,-0.5),0.5));
+  gc.globalAlpha=gAlive?0.9:0.4;gc.fillStyle='#e040fb';
+  gc.beginPath();gc.ellipse(-16*flap,0,18*flap,11,Math.PI/6,0,Math.PI*2);gc.fill();
+  gc.beginPath();gc.ellipse(16*flap,0,18*flap,11,-Math.PI/6,0,Math.PI*2);gc.fill();
+  gc.fillStyle='#222';gc.beginPath();gc.ellipse(0,0,3,8,0,0,Math.PI*2);gc.fill();
+  gc.restore();
+  if(!gAlive){gc.globalAlpha=0.6;gc.fillStyle='#fff';gc.font=`${Math.round(gcW*0.04)}px 'Share Tech Mono',monospace`;gc.textAlign='center';gc.textBaseline='middle';gc.fillText('タップで復活',gcW/2,gcH/2);}
+  gc.globalAlpha=1;
+  gRafId=requestAnimationFrame(gLoop);
+}
+gcEl.addEventListener('click',gFlap);
+gcEl.addEventListener('touchstart',e=>{e.preventDefault();gFlap();},{passive:false});
+function startGame(){
+  gRunning=true;
+  document.getElementById('game-ui').style.display='flex';
+  gcEl.style.display='block';
+  requestAnimationFrame(ts=>{gLastTs=ts;gLoop(ts);});
+}
+
 const W=()=>window.innerWidth,H=()=>window.innerHeight;
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 function ease(t){return t<0.5?2*t*t:1-(-2*t+2)**2/2;}
@@ -225,7 +300,7 @@ const tapOv=document.getElementById('tap-ov');
 function startAll(){
   tapOv.style.opacity='0';
   setTimeout(()=>tapOv.style.display='none',600);
-  img.complete?run():img.onload=run;
+  startGame();
 }
 tapOv.addEventListener('click',startAll,{once:true});
 tapOv.addEventListener('touchend',e=>{e.preventDefault();startAll();},{once:true,passive:false});

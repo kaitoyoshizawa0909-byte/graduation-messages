@@ -43,7 +43,7 @@ canvas{position:fixed;inset:0;pointer-events:none;}
 #final-name{font-family:'Shippori Mincho',serif;font-size:clamp(2.2rem,11vw,4.5rem);font-weight:800;letter-spacing:0.12em;color:#fff;text-shadow:0 0 40px #69f0ae88;opacity:0;transform:translateY(16px);transition:opacity 0.7s ease,transform 0.7s cubic-bezier(0.22,1,0.36,1);}
 #final-msg{font-family:'Shippori Mincho',serif;font-size:clamp(0.9rem,4.5vw,1.4rem);font-weight:400;letter-spacing:0.15em;color:#f0fff0;text-shadow:0 0 20px #f0fff088;opacity:0;transform:translateY(12px);transition:opacity 0.7s ease 0.25s,transform 0.7s ease 0.25s;}
 #final-from{font-family:'Share Tech Mono',monospace;font-size:clamp(1.4rem,5.5vw,1.9rem);letter-spacing:0.35em;color:rgba(255,255,255,0.45);opacity:0;transition:opacity 0.7s ease 0.6s;}
-#flash{position:fixed;inset:0;z-index:20;pointer-events:none;background:#fff;opacity:0;transition:opacity 0.25s;}
+#flash{position:fixed;inset:0;z-index:55;pointer-events:none;background:#fff;opacity:0;transition:opacity 0.25s;}
 #scan{position:fixed;inset:0;z-index:15;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.06) 3px,rgba(0,0,0,0.06) 4px);}
 </style>
 </head>
@@ -70,7 +70,267 @@ canvas{position:fixed;inset:0;pointer-events:none;}
     <div id="final-from">✦ &nbsp; Yoshy &nbsp; ✦</div>
   </div>
 </div>
+<canvas id="c-game" style="position:fixed;inset:0;z-index:40;pointer-events:auto;display:none;cursor:crosshair;"></canvas>
+<div id="game-ui" style="position:fixed;inset:0;z-index:45;display:none;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:8vh;pointer-events:none;">
+  <div style="font-family:'Share Tech Mono',monospace;font-size:clamp(0.55rem,2.5vw,0.82rem);letter-spacing:0.3em;color:#69f0ae;margin-bottom:0.7rem;opacity:0.85;">🌬 風をかわせ！左右をタップ！</div>
+  <div style="display:flex;align-items:baseline;gap:0.25rem;">
+    <span id="g-count" style="font-family:'Shippori Mincho',serif;font-size:clamp(2.2rem,11vw,3.5rem);font-weight:800;line-height:1;color:#fff;">12</span>
+    <span style="font-family:'Shippori Mincho',serif;font-size:clamp(0.9rem,4vw,1.3rem);color:rgba(255,255,255,0.6);">残り</span>
+  </div>
+  <div style="width:min(220px,52vw);height:3px;background:rgba(255,255,255,0.15);border-radius:2px;margin-top:0.9rem;overflow:hidden;">
+    <div id="g-fill" style="height:100%;width:0%;background:#69f0ae;border-radius:2px;transition:width 0.18s ease;"></div>
+  </div>
+</div>
+<div id="game-clear" style="position:fixed;inset:0;z-index:46;display:flex;align-items:center;justify-content:center;font-family:'Share Tech Mono',monospace;font-size:clamp(1.8rem,9vw,3.2rem);letter-spacing:0.5em;color:#fff;opacity:0;pointer-events:none;transition:opacity 0.3s;text-shadow:0 0 35px #69f0ae;">✦ CLEAR! ✦</div>
 <script>
+
+const gcEl = document.getElementById('c-game');
+const gc   = gcEl.getContext('2d');
+gcEl.width  = window.innerWidth;
+gcEl.height = window.innerHeight;
+const gcW = gcEl.width, gcH = gcEl.height;
+const CX = gcW / 2, CY = gcH * 0.48;
+
+// States: 'idle' → 'warning' → 'gust' → 'result' → 'idle'
+let gRunning   = false;
+let gScore     = 0;
+let gPhase     = 'idle';  // idle | warning | gust | result
+let gDir       = 0;       // -1 = gust from left, +1 = from right
+let gTimer     = 0;       // countdown frames
+let gDodged    = false;   // did player dodge correctly this round?
+let gResultOk  = false;
+let gParticles = [];
+let gPlayerX   = CX;      // character lean position
+let gLeanTarget= CX;
+let gIdleTimer = 0;
+let gRafId     = 0;
+
+const WARNING_FRAMES = 50;  // show warning arrow
+const GUST_FRAMES    = 45;  // player must tap in this window
+const RESULT_FRAMES  = 35;
+
+function gSpawnParticles(fromLeft) {
+  const startX = fromLeft ? -20 : gcW + 20;
+  const vx     = fromLeft ? (8 + Math.random() * 6) : -(8 + Math.random() * 6);
+  for (let i = 0; i < 22; i++) {
+    gParticles.push({
+      x: startX,
+      y: gcH * 0.1 + Math.random() * gcH * 0.8,
+      vx: vx + (Math.random() - 0.5) * 3,
+      vy: (Math.random() - 0.5) * 2,
+      life: 1,
+      r: 3 + Math.random() * 6,
+      col: Math.random() > 0.5 ? '#69f0ae' : '#b2ff59'
+    });
+  }
+}
+
+function gNextRound() {
+  gDir = Math.random() < 0.5 ? -1 : 1; // -1 gust from left, +1 from right
+  gPhase = 'warning';
+  gTimer = WARNING_FRAMES;
+  gDodged = false;
+}
+
+function gTap(px) {
+  if (!gRunning || gPhase !== 'gust') return;
+  // Correct dodge: if gust from LEFT (gDir=-1), tap RIGHT half (px > CX)
+  //               if gust from RIGHT (gDir=+1), tap LEFT half (px < CX)
+  const correct = (gDir === -1 && px > CX) || (gDir === 1 && px < CX);
+  if (correct && !gDodged) {
+    gDodged = true;
+    gResultOk = true;
+    gLeanTarget = CX + (gDir === -1 ? gcW * 0.14 : -gcW * 0.14);
+    pt(660, 'sine', 0, 0.2, 0.12);
+    pt(880, 'sine', 0.03, 0.15, 0.08);
+    gScore++;
+    document.getElementById('g-count').textContent = Math.max(0, 12 - gScore);
+    document.getElementById('g-fill').style.width = (gScore / 12 * 100) + '%';
+    if (gScore >= 12) { gRunning=false;chord([523,659,784,1047],'sine',0,1.2,0.12);for(let i=0;i<5;i++)pt(1047+i*130,'sine',i*0.07,0.8,0.07);doFlash(140,'#69f0ae');document.getElementById('game-clear').style.opacity='1';setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>{const el=document.getElementById(id);el.style.transition='opacity 0.6s';el.style.opacity='0';});setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>document.getElementById(id).style.display='none');run();},680);},950); return; }
+    gPhase = 'result';
+    gTimer = RESULT_FRAMES;
+  } else if (!gDodged) {
+    gDodged = true;
+    gResultOk = false;
+    pn(0, 0.15, 0.18, 200, 0.5);
+    gPhase = 'result';
+    gTimer = RESULT_FRAMES;
+  }
+}
+
+function gDraw() {
+  if (!gRunning) return;
+  gTimer--;
+
+  // Phase transitions
+  if (gPhase === 'idle') {
+    gIdleTimer++;
+    if (gIdleTimer > 40) { gIdleTimer = 0; gNextRound(); }
+  } else if (gPhase === 'warning' && gTimer <= 0) {
+    gPhase = 'gust';
+    gTimer = GUST_FRAMES;
+    gSpawnParticles(gDir === -1);
+    sw(gDir === -1 ? 80 : 120, 40, 'sawtooth', 0, 0.25, 0.18);
+    pn(0.1, 0.3, 0.15, 300, 0.5);
+  } else if (gPhase === 'gust' && gTimer <= 0) {
+    // Time's up — miss
+    if (!gDodged) {
+      gDodged = true; gResultOk = false;
+      pn(0, 0.18, 0.2, 200, 0.5);
+    }
+    gPhase = 'result';
+    gTimer = RESULT_FRAMES;
+  } else if (gPhase === 'result' && gTimer <= 0) {
+    gPhase = 'idle';
+    gLeanTarget = CX;
+    gIdleTimer = 0;
+  }
+
+  // Lean player toward target
+  gPlayerX += (gLeanTarget - gPlayerX) * 0.15;
+  if (gPhase === 'idle' || gPhase === 'warning') gLeanTarget = CX;
+
+  // Move particles
+  gParticles.forEach(p => {
+    p.x += p.vx; p.y += p.vy; p.life -= 0.035;
+  });
+  gParticles = gParticles.filter(p => p.life > 0 && p.x > -30 && p.x < gcW + 30);
+
+  gc.clearRect(0, 0, gcW, gcH);
+
+  // ── Particles ──
+  gParticles.forEach(p => {
+    gc.globalAlpha = p.life * 0.7;
+    gc.fillStyle = p.col;
+    gc.beginPath();
+    gc.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    gc.fill();
+  });
+
+  // ── Ground line ──
+  gc.globalAlpha = 0.15;
+  gc.strokeStyle = '#69f0ae';
+  gc.lineWidth = 1.5;
+  gc.beginPath();
+  gc.moveTo(0, gcH * 0.72);
+  gc.lineTo(gcW, gcH * 0.72);
+  gc.stroke();
+
+  // ── Character (simple figure) ──
+  const lean = (gPlayerX - CX) / (gcW * 0.14);
+  gc.save();
+  gc.translate(gPlayerX, gcH * 0.62);
+  gc.rotate(lean * 0.35);
+  gc.globalAlpha = 0.92;
+
+  // Body
+  gc.fillStyle = '#69f0ae';
+  gc.beginPath();
+  gc.ellipse(0, 0, 14, 22, 0, 0, Math.PI * 2);
+  gc.fill();
+  // Head
+  gc.beginPath();
+  gc.arc(0, -30, 16, 0, Math.PI * 2);
+  gc.fill();
+  // Eyes (expression changes)
+  gc.fillStyle = '#000814';
+  const eyeX = gPhase === 'gust' ? lean * 4 : 0;
+  gc.beginPath(); gc.arc(-6 + eyeX, -32, 3, 0, Math.PI * 2); gc.fill();
+  gc.beginPath(); gc.arc( 6 + eyeX, -32, 3, 0, Math.PI * 2); gc.fill();
+  gc.restore();
+
+  // ── Warning / Gust arrows ──
+  if (gPhase === 'warning' || gPhase === 'gust') {
+    const fromLeft = gDir === -1;
+    const progress = gPhase === 'warning'
+      ? 1 - gTimer / WARNING_FRAMES
+      : 1;
+    const arrowX = fromLeft ? gcW * 0.12 : gcW * 0.88;
+    const arrowDir = fromLeft ? 1 : -1;
+
+    // Pulsing glow behind arrow
+    const pulse = 0.4 + 0.4 * Math.sin(Date.now() * 0.015);
+    gc.globalAlpha = progress * pulse;
+    const glow = gc.createRadialGradient(arrowX, CY, 0, arrowX, CY, 80);
+    glow.addColorStop(0, '#69f0ae');
+    glow.addColorStop(1, 'transparent');
+    gc.fillStyle = glow;
+    gc.beginPath();
+    gc.arc(arrowX, CY, 80, 0, Math.PI * 2);
+    gc.fill();
+
+    // Arrow
+    gc.globalAlpha = progress * (gPhase === 'gust' ? 0.95 : 0.7);
+    gc.fillStyle = gPhase === 'gust' ? '#fff' : '#69f0ae';
+    gc.save();
+    gc.translate(arrowX, CY);
+    gc.scale(-arrowDir, 1);
+    gc.beginPath();
+    gc.moveTo(-30, 0);
+    gc.lineTo(10, -28);
+    gc.lineTo(10, -10);
+    gc.lineTo(40, -10);
+    gc.lineTo(40,  10);
+    gc.lineTo(10,  10);
+    gc.lineTo(10,  28);
+    gc.closePath();
+    gc.fill();
+    gc.restore();
+
+    // Label: which side to tap
+    if (gPhase === 'gust') {
+      const tapSide = fromLeft ? '右をタップ！' : '左をタップ！';
+      gc.globalAlpha = 0.85;
+      gc.fillStyle = '#fff';
+      gc.font = `bold ${Math.round(gcW * 0.045)}px 'Share Tech Mono',monospace`;
+      gc.textAlign = 'center';
+      gc.textBaseline = 'middle';
+      gc.fillText(tapSide, CX, gcH * 0.84);
+    }
+  }
+
+  // ── Result feedback ──
+  if (gPhase === 'result') {
+    const fade = gTimer / RESULT_FRAMES;
+    gc.globalAlpha = fade;
+    gc.font = `bold ${Math.round(gcW * 0.12)}px 'Shippori Mincho',serif`;
+    gc.textAlign = 'center';
+    gc.textBaseline = 'middle';
+    gc.fillStyle = gResultOk ? '#69f0ae' : '#ff5722';
+    gc.fillText(gResultOk ? 'DODGE!' : 'MISS...', CX, CY - gcH * 0.08);
+  }
+
+  // ── Tap zone hints (subtle) ──
+  if (gPhase === 'gust' && !gDodged) {
+    const fromLeft = gDir === -1;
+    gc.globalAlpha = 0.08 + 0.06 * Math.abs(Math.sin(Date.now() * 0.005));
+    gc.fillStyle = fromLeft ? '#69f0ae' : '#b2ff59';
+    gc.fillRect(fromLeft ? CX : 0, 0, CX, gcH);
+  }
+
+  gc.globalAlpha = 1;
+  gRafId = requestAnimationFrame(gDraw);
+}
+
+gcEl.addEventListener('click', e => {
+  const r = gcEl.getBoundingClientRect();
+  gTap(e.clientX - r.left);
+});
+gcEl.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const r = gcEl.getBoundingClientRect();
+  gTap(e.changedTouches[0].clientX - r.left);
+}, { passive: false });
+
+function startGame() {
+  gRunning = true;
+  gIdleTimer = 0;
+  gPhase = 'idle';
+  document.getElementById('game-ui').style.display = 'flex';
+  gcEl.style.display = 'block';
+  gDraw();
+}
+
 const W=()=>window.innerWidth,H=()=>window.innerHeight;
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 function ease(t){return t<0.5?2*t*t:1-(-2*t+2)**2/2;}
@@ -265,7 +525,7 @@ const tapOv=document.getElementById('tap-ov');
 function startAll(){
   tapOv.style.opacity='0';
   setTimeout(()=>tapOv.style.display='none',600);
-  img.complete?run():img.onload=run;
+  startGame();
 }
 tapOv.addEventListener('click',startAll,{once:true});
 tapOv.addEventListener('touchend',e=>{e.preventDefault();startAll();},{once:true,passive:false});

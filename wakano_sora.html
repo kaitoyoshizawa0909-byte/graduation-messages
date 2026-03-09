@@ -43,7 +43,7 @@ canvas{position:fixed;inset:0;pointer-events:none;}
 #final-name{font-family:'Shippori Mincho',serif;font-size:clamp(2.2rem,11vw,4.5rem);font-weight:800;letter-spacing:0.12em;color:#fff;text-shadow:0 0 40px #00e5ff88;opacity:0;transform:translateY(16px);transition:opacity 0.7s ease,transform 0.7s cubic-bezier(0.22,1,0.36,1);}
 #final-msg{font-family:'Shippori Mincho',serif;font-size:clamp(0.9rem,4.5vw,1.4rem);font-weight:400;letter-spacing:0.15em;color:#b3e5fc;text-shadow:0 0 20px #b3e5fc88;opacity:0;transform:translateY(12px);transition:opacity 0.7s ease 0.25s,transform 0.7s ease 0.25s;}
 #final-from{font-family:'Share Tech Mono',monospace;font-size:clamp(1.4rem,5.5vw,1.9rem);letter-spacing:0.35em;color:rgba(255,255,255,0.45);opacity:0;transition:opacity 0.7s ease 0.6s;}
-#flash{position:fixed;inset:0;z-index:20;pointer-events:none;background:#fff;opacity:0;transition:opacity 0.25s;}
+#flash{position:fixed;inset:0;z-index:55;pointer-events:none;background:#fff;opacity:0;transition:opacity 0.25s;}
 #scan{position:fixed;inset:0;z-index:15;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.06) 3px,rgba(0,0,0,0.06) 4px);}
 </style>
 </head>
@@ -70,7 +70,87 @@ canvas{position:fixed;inset:0;pointer-events:none;}
     <div id="final-from">✦ &nbsp; Yoshy &nbsp; ✦</div>
   </div>
 </div>
+<canvas id="c-game" style="position:fixed;inset:0;z-index:40;pointer-events:auto;display:none;cursor:crosshair;"></canvas>
+<div id="game-ui" style="position:fixed;inset:0;z-index:45;display:none;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:8vh;pointer-events:none;">
+  <div style="font-family:'Share Tech Mono',monospace;font-size:clamp(0.55rem,2.5vw,0.82rem);letter-spacing:0.3em;color:#00e5ff;margin-bottom:0.7rem;opacity:0.85;">★ 番号順に星をつなげ！</div>
+  <div style="display:flex;align-items:baseline;gap:0.25rem;">
+    <span id="g-count" style="font-family:'Shippori Mincho',serif;font-size:clamp(2.2rem,11vw,3.5rem);font-weight:800;line-height:1;color:#fff;">12</span>
+    <span style="font-family:'Shippori Mincho',serif;font-size:clamp(0.9rem,4vw,1.3rem);color:rgba(255,255,255,0.6);">残り</span>
+  </div>
+  <div style="width:min(220px,52vw);height:3px;background:rgba(255,255,255,0.15);border-radius:2px;margin-top:0.9rem;overflow:hidden;">
+    <div id="g-fill" style="height:100%;width:0%;background:#00e5ff;border-radius:2px;transition:width 0.18s ease;"></div>
+  </div>
+</div>
+<div id="game-clear" style="position:fixed;inset:0;z-index:46;display:flex;align-items:center;justify-content:center;font-family:'Share Tech Mono',monospace;font-size:clamp(1.8rem,9vw,3.2rem);letter-spacing:0.5em;color:#fff;opacity:0;pointer-events:none;transition:opacity 0.3s;text-shadow:0 0 35px #00e5ff;">✦ CLEAR! ✦</div>
 <script>
+
+const gcEl=document.getElementById('c-game');const gc=gcEl.getContext('2d');
+gcEl.width=window.innerWidth;gcEl.height=window.innerHeight;
+const gcW=gcEl.width,gcH=gcEl.height;
+let gRunning=false,gStars=[],gLines=[],gNext=1,gRafId=0;
+function gInitStars(){
+  gStars=[];
+  for(let i=1;i<=12;i++){
+    let x,y,ok,att=0;
+    do{ok=true;x=gcW*0.12+Math.random()*gcW*0.76;y=gcH*0.12+Math.random()*gcH*0.76;
+      gStars.forEach(s=>{if(Math.hypot(x-s.x,y-s.y)<58)ok=false;});att++;
+    }while(!ok&&att<200);
+    gStars.push({n:i,x,y,hit:false});
+  }
+}
+function gDrawFrame(){
+  if(!gRunning)return;
+  gc.clearRect(0,0,gcW,gcH);
+  const t=Date.now()*0.002;
+  // lines
+  gLines.forEach(l=>{gc.strokeStyle='#00e5ff';gc.globalAlpha=0.55;gc.lineWidth=1.8;gc.beginPath();gc.moveTo(l.x1,l.y1);gc.lineTo(l.x2,l.y2);gc.stroke();});
+  // stars
+  gStars.forEach(s=>{
+    gc.save();gc.translate(s.x,s.y);
+    if(!s.hit){
+      gc.globalAlpha=0.18+0.08*Math.sin(t+s.n);
+      const gl=gc.createRadialGradient(0,0,0,0,0,36);
+      gl.addColorStop(0,'#00e5ff');gl.addColorStop(1,'transparent');
+      gc.fillStyle=gl;gc.beginPath();gc.arc(0,0,36,0,Math.PI*2);gc.fill();
+    }
+    gc.globalAlpha=s.hit?0.22:1;
+    gc.fillStyle=s.hit?'rgba(0,229,255,0.25)':'#00e5ff';
+    gc.beginPath();
+    for(let i=0;i<10;i++){const r=i%2?6:18,a2=i*Math.PI/5-Math.PI/2;i===0?gc.moveTo(Math.cos(a2)*r,Math.sin(a2)*r):gc.lineTo(Math.cos(a2)*r,Math.sin(a2)*r);}
+    gc.closePath();gc.fill();
+    if(!s.hit){gc.globalAlpha=1;gc.fillStyle='#000814';gc.font='bold 10px monospace';gc.textAlign='center';gc.textBaseline='middle';gc.fillText(s.n,0,0);}
+    gc.restore();
+  });
+  gc.globalAlpha=1;
+  gRafId=requestAnimationFrame(gDrawFrame);
+}
+function gHitTest(px,py){
+  if(!gRunning)return;
+  for(let i=0;i<gStars.length;i++){
+    const s=gStars[i];
+    if(!s.hit&&Math.hypot(px-s.x,py-s.y)<30){
+      if(s.n===gNext){
+        if(gNext>1){const p=gStars[gNext-2];gLines.push({x1:p.x,y1:p.y,x2:s.x,y2:s.y});}
+        s.hit=true;gNext++;
+        pt(330+s.n*55,'sine',0,0.2,0.12);sw(200,700,'sine',0,0.14,0.06);
+        const rem=Math.max(0,12-gNext+1);
+        document.getElementById('g-count').textContent=rem;
+        document.getElementById('g-fill').style.width=((gNext-1)/12*100)+'%';
+        if(gNext>12){gRunning=false;chord([523,659,784,1047],'sine',0,1.2,0.12);for(let i=0;i<5;i++)pt(1047+i*130,'sine',i*0.07,0.8,0.07);doFlash(140,'#00e5ff');document.getElementById('game-clear').style.opacity='1';setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>{const el=document.getElementById(id);el.style.transition='opacity 0.6s';el.style.opacity='0';});setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>document.getElementById(id).style.display='none');run();},680);},950);}
+      }else{pn(0,0.15,0.18,200,0.5);}
+      return;
+    }
+  }
+}
+gcEl.addEventListener('click',e=>{const r=gcEl.getBoundingClientRect();gHitTest(e.clientX-r.left,e.clientY-r.top);});
+gcEl.addEventListener('touchstart',e=>{e.preventDefault();const r=gcEl.getBoundingClientRect(),t2=e.changedTouches[0];gHitTest(t2.clientX-r.left,t2.clientY-r.top);},{passive:false});
+function startGame(){
+  gRunning=true;gInitStars();
+  document.getElementById('game-ui').style.display='flex';
+  gcEl.style.display='block';
+  gDrawFrame();
+}
+
 const W=()=>window.innerWidth,H=()=>window.innerHeight;
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 function ease(t){return t<0.5?2*t*t:1-(-2*t+2)**2/2;}
@@ -265,7 +345,7 @@ const tapOv=document.getElementById('tap-ov');
 function startAll(){
   tapOv.style.opacity='0';
   setTimeout(()=>tapOv.style.display='none',600);
-  img.complete?run():img.onload=run;
+  startGame();
 }
 tapOv.addEventListener('click',startAll,{once:true});
 tapOv.addEventListener('touchend',e=>{e.preventDefault();startAll();},{once:true,passive:false});
