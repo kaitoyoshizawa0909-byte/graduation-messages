@@ -28,6 +28,25 @@ canvas{position:fixed;inset:0;pointer-events:none;}
 #final-from{font-family:'Share Tech Mono',monospace;font-size:clamp(1.4rem,5.5vw,1.9rem);letter-spacing:0.35em;color:rgba(255,255,255,0.45);opacity:0;transition:opacity 0.7s ease 0.6s;}
 #flash{position:fixed;inset:0;z-index:55;pointer-events:none;background:#fff;opacity:0;transition:opacity 0.25s;}
 #scan{position:fixed;inset:0;z-index:15;pointer-events:none;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.06) 3px,rgba(0,0,0,0.06) 4px);}
+
+#back-btn{
+  display:inline-block;
+  margin-top:2.2rem;
+  padding:0.6em 2em;
+  font-family:'Share Tech Mono',monospace;
+  font-size:clamp(0.9rem,3.5vw,1.1rem);
+  letter-spacing:0.2em;
+  color:rgba(255,255,255,0.7);
+  border:1px solid rgba(255,255,255,0.3);
+  border-radius:999px;
+  background:rgba(255,255,255,0.07);
+  cursor:pointer;
+  text-decoration:none;
+  opacity:0;
+  transition:opacity 0.8s ease 1s, background 0.2s;
+  -webkit-tap-highlight-color:transparent;
+}
+#back-btn:hover,#back-btn:active{background:rgba(255,255,255,0.18);}
 </style>
 </head>
 <body>
@@ -50,6 +69,7 @@ canvas{position:fixed;inset:0;pointer-events:none;}
     <div id="final-name">中井裕翔</div>
     <div id="final-msg">笑いで明るくしよう</div>
     <div id="final-from">✦ &nbsp; Yoshy &nbsp; ✦</div>
+    <a id="back-btn" href="index.html">← もどる</a>
   </div>
 </div>
 <canvas id="c-game" style="position:fixed;inset:0;z-index:40;pointer-events:auto;display:none;cursor:crosshair;"></canvas>
@@ -284,6 +304,7 @@ async function run(){
   document.getElementById('final-msg').style.opacity='1';document.getElementById('final-msg').style.transform='translateY(0)';
   await delay(500);
   document.getElementById('final-from').style.opacity='1';
+  setTimeout(()=>{const b=document.getElementById('back-btn');if(b)b.style.opacity='1';},1400);
   await delay(700);
   await new Promise(res=>{
     let t=0;function f(){t+=0.012;mx.clearRect(0,0,cw,ch);
