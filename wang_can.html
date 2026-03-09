@@ -60,7 +60,7 @@ canvas{position:fixed;inset:0;pointer-events:none;}
   cursor:pointer;
   text-decoration:none;
   opacity:0;
-  pointer-events:auto;
+  pointer-events:none;
   position:relative;
   z-index:60;
   transition:opacity 0.8s ease 1s, background 0.2s;
@@ -110,31 +110,71 @@ canvas{position:fixed;inset:0;pointer-events:none;}
 const gcEl=document.getElementById('c-game');const gc=gcEl.getContext('2d');
 gcEl.width=window.innerWidth;gcEl.height=window.innerHeight;
 const gcW=gcEl.width,gcH=gcEl.height;
-let gRunning=false,gGems=[],gScore=0,gLastTs=0,gRafId=0,gSpawnT=0;
 const LANES=3,LW=gcW/LANES;
 const CATCH_Y=gcH*0.82,CATCH_H=60;
 const COLORS=['#d4af37','#ff6ec7','#b39ddb'];
-let gActive=[-1,-1,-1]; // flash timer per lane
-function gSpawn(){const lane=Math.floor(Math.random()*LANES);gGems.push({lane,x:lane*LW+LW/2,y:-20,vy:3+Math.random()*2,r:16,c:COLORS[lane],caught:false,missed:false});}
+const GOAL=15, MAX_MISS=3;
+let gRunning=false,gGems=[],gScore=0,gMiss=0,gLastTs=0,gRafId=0,gSpawnT=0;
+let gActive=[-1,-1,-1];
+let gFbText='',gFbTimer=0,gFbOk=true;
+
+function gUpdateUI(){
+  document.getElementById('g-count').textContent=Math.max(0,GOAL-gScore);
+  document.getElementById('g-fill').style.width=(Math.max(0,gScore)/GOAL*100)+'%';
+}
+function gSpawn(){
+  const lane=Math.floor(Math.random()*LANES);
+  const speed=3.5+Math.random()*2.5+(gScore*0.08);
+  gGems.push({lane,x:lane*LW+LW/2,y:-20,vy:speed,r:16,c:COLORS[lane],caught:false,missed:false,penalized:false});
+}
 function gLoop(ts){
   if(!gRunning)return;
   const dt=Math.min((ts-gLastTs)/16,2.5);gLastTs=ts;gSpawnT+=dt;
-  if(gSpawnT>70&&gGems.filter(g=>!g.caught&&!g.missed).length<4){gSpawnT=0;gSpawn();}
-  gGems.forEach(g=>{if(!g.caught&&!g.missed){g.y+=g.vy*dt;if(g.y>gcH+30)g.missed=true;}if(g.caught)g.r+=2;});
-  gGems=gGems.filter(g=>!(g.caught&&g.r>60)&&!g.missed);
+  // Spawn more gems: up to 6 active, faster spawn rate
+  if(gSpawnT>45&&gGems.filter(g=>!g.caught&&!g.missed).length<6){gSpawnT=0;gSpawn();}
+
+  gGems.forEach(g=>{
+    if(!g.caught&&!g.missed){
+      g.y+=g.vy*dt;
+      if(g.y>gcH+30){
+        g.missed=true;
+        if(!g.penalized){
+          g.penalized=true;
+          gMiss++;
+          gScore=Math.max(0,gScore-1);
+          gFbText='-1';gFbTimer=35;gFbOk=false;
+          pn(0,0.15,0.15,150,0.4);
+          gUpdateUI();
+        }
+      }
+    }
+    if(g.caught)g.r+=2;
+  });
+  gGems=gGems.filter(g=>!(g.caught&&g.r>60)&&!(g.missed&&g.y>gcH+60));
   gActive=gActive.map(v=>Math.max(-1,v-1));
+
   gc.clearRect(0,0,gcW,gcH);
-  // lane dividers
+
+  // Miss indicator top-right
+  gc.globalAlpha=0.8;gc.fillStyle='#ff5722';
+  gc.font=`${Math.round(gcW*0.038)}px 'Share Tech Mono',monospace`;
+  gc.textAlign='right';gc.textBaseline='top';
+  gc.fillText('MISS: '+gMiss,gcW-16,16);
+
+  // Lane dividers
   for(let i=1;i<LANES;i++){gc.globalAlpha=0.12;gc.strokeStyle='#d4af37';gc.lineWidth=1;gc.beginPath();gc.moveTo(i*LW,0);gc.lineTo(i*LW,gcH);gc.stroke();}
-  // catch zones
+
+  // Catch zones
   for(let i=0;i<LANES;i++){
     gc.globalAlpha=gActive[i]>0?0.4:0.1;gc.fillStyle=COLORS[i];
     gc.beginPath();gc.roundRect(i*LW+8,CATCH_Y-CATCH_H/2,LW-16,CATCH_H,12);gc.fill();
     gc.globalAlpha=0.5;gc.strokeStyle=COLORS[i];gc.lineWidth=1.5;gc.stroke();
-    // TAP label
-    gc.globalAlpha=0.35;gc.fillStyle='#fff';gc.font=`${Math.round(gcW*0.03)}px monospace`;gc.textAlign='center';gc.textBaseline='middle';gc.fillText('TAP',i*LW+LW/2,CATCH_Y);
+    gc.globalAlpha=0.35;gc.fillStyle='#fff';
+    gc.font=`${Math.round(gcW*0.03)}px monospace`;gc.textAlign='center';gc.textBaseline='middle';
+    gc.fillText('TAP',i*LW+LW/2,CATCH_Y);
   }
-  // gems
+
+  // Gems
   gGems.forEach(g=>{
     gc.save();gc.translate(g.x,g.y);
     gc.globalAlpha=g.caught?Math.max(0,1-(g.r-16)/44):0.9;
@@ -143,6 +183,17 @@ function gLoop(ts){
     gc.globalAlpha*=0.4;gc.strokeStyle='#fff';gc.lineWidth=1;gc.stroke();
     gc.restore();
   });
+
+  // Floating feedback
+  if(gFbTimer>0){
+    gFbTimer--;
+    gc.globalAlpha=gFbTimer/35;
+    gc.font=`bold ${Math.round(gcW*0.1)}px 'Shippori Mincho',serif`;
+    gc.fillStyle=gFbOk?'#76ff03':'#ff5722';
+    gc.textAlign='center';gc.textBaseline='middle';
+    gc.fillText(gFbText,gcW/2,gcH*0.55);
+  }
+
   gc.globalAlpha=1;
   gRafId=requestAnimationFrame(gLoop);
 }
@@ -155,10 +206,10 @@ function gTap(px){
     const g=gGems[i];
     if(!g.caught&&!g.missed&&g.lane===lane&&g.y>CATCH_Y-CATCH_H&&g.y<CATCH_Y+CATCH_H/2){
       g.caught=true;gScore++;
+      gFbText='+1';gFbTimer=28;gFbOk=true;
       chord([440+lane*100,550+lane*100,660+lane*100],'sine',0,0.4,0.1);
-      document.getElementById('g-count').textContent=Math.max(0,12-gScore);
-      document.getElementById('g-fill').style.width=(gScore/12*100)+'%';
-      if(gScore>=12){gRunning=false;chord([523,659,784,1047],'sine',0,1.2,0.12);for(let i=0;i<5;i++)pt(1047+i*130,'sine',i*0.07,0.8,0.07);doFlash(140,'#d4af37');document.getElementById('game-clear').style.opacity='1';setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>{const el=document.getElementById(id);el.style.transition='opacity 0.6s';el.style.opacity='0';});setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>document.getElementById(id).style.display='none');run();},680);},950);}
+      gUpdateUI();
+      if(gScore>=GOAL){gRunning=false;chord([523,659,784,1047],'sine',0,1.2,0.12);for(let i=0;i<5;i++)pt(1047+i*130,'sine',i*0.07,0.8,0.07);doFlash(140,'#d4af37');document.getElementById('game-clear').style.opacity='1';setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>{const el=document.getElementById(id);el.style.transition='opacity 0.6s';el.style.opacity='0';});setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>document.getElementById(id).style.display='none');run();},680);},950);return;}
       break;
     }
   }
@@ -166,8 +217,9 @@ function gTap(px){
 gcEl.addEventListener('click',e=>{const r=gcEl.getBoundingClientRect();gTap(e.clientX-r.left);});
 gcEl.addEventListener('touchstart',e=>{e.preventDefault();const r=gcEl.getBoundingClientRect(),t2=e.changedTouches[0];gTap(t2.clientX-r.left);},{passive:false});
 function startGame(){
-  gRunning=true;gSpawn();gSpawn();
+  gRunning=true;gSpawn();gSpawn();gSpawn();
   document.getElementById('game-ui').style.display='flex';
+  document.getElementById('g-count').textContent=GOAL;
   gcEl.style.display='block';
   requestAnimationFrame(ts=>{gLastTs=ts;gLoop(ts);});
 }
@@ -368,7 +420,7 @@ async function run(){
   document.getElementById('final-msg').style.opacity='1';document.getElementById('final-msg').style.transform='translateY(0)';
   await delay(500);
   document.getElementById('final-from').style.opacity='1';
-  setTimeout(()=>{const b=document.getElementById('back-btn');if(b)b.style.opacity='1';},1400);
+  setTimeout(()=>{const b=document.getElementById('back-btn');if(b){b.style.opacity='1';b.style.pointerEvents='auto';}},1400);
   // ── GHOST PHOTO ──
   await delay(700);
   await new Promise(res=>{

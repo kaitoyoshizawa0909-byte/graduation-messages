@@ -60,7 +60,7 @@ canvas{position:fixed;inset:0;pointer-events:none;}
   cursor:pointer;
   text-decoration:none;
   opacity:0;
-  pointer-events:auto;
+  pointer-events:none;
   position:relative;
   z-index:60;
   transition:opacity 0.8s ease 1s, background 0.2s;
@@ -371,7 +371,7 @@ async function run(){
   document.getElementById('final-msg').style.opacity='1';document.getElementById('final-msg').style.transform='translateY(0)';
   await delay(500);
   document.getElementById('final-from').style.opacity='1';
-  setTimeout(()=>{const b=document.getElementById('back-btn');if(b)b.style.opacity='1';},1400);
+  setTimeout(()=>{const b=document.getElementById('back-btn');if(b){b.style.opacity='1';b.style.pointerEvents='auto';}},1400);
   // ── GHOST PHOTO ──
   await delay(700);
   await new Promise(res=>{
