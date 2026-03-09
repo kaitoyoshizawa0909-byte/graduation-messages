@@ -89,6 +89,7 @@ gcEl.width=window.innerWidth;gcEl.height=window.innerHeight;
 const gcW=gcEl.width,gcH=gcEl.height;
 const CX=gcW/2,CY=gcH/2;
 let gRunning=false,gSeq=[],gInput=[],gShowing=false,gLevel=1,gScore=0,gRafId=0;
+let gFbText="",gFbTimer=0,gFbOk=true;
 const QCOLS=['#00bcd4','#80deea','#006064','#4dd0e1'];
 const QLABELS=['↖','↗','↙','↘'];
 function qCenter(q){return[[CX-gcW*0.18,CY-gcH*0.18],[CX+gcW*0.18,CY-gcH*0.18],[CX-gcW*0.18,CY+gcH*0.18],[CX+gcW*0.18,CY+gcH*0.18]][q];}
@@ -107,6 +108,15 @@ function gDraw(){
   // ripples
   gRipples.forEach(r=>{r.r+=3;r.a-=0.025;gc.globalAlpha=Math.max(0,r.a);gc.strokeStyle=QCOLS[r.q];gc.lineWidth=2;gc.beginPath();gc.arc(r.x,r.y,r.r,0,Math.PI*2);gc.stroke();});
   gRipples=gRipples.filter(r=>r.a>0);
+  // Feedback text
+  if(gFbTimer>0){
+    gFbTimer--;
+    gc.globalAlpha=gFbTimer/35;
+    gc.font=`bold ${Math.round(gcW*0.12)}px 'Shippori Mincho',serif`;
+    gc.fillStyle=gFbOk?'#76ff03':'#ff5722';
+    gc.textAlign='center';gc.textBaseline='middle';
+    gc.fillText(gFbText,CX,CY+gcH*0.3);
+  }
   gc.globalAlpha=1;
   gRafId=requestAnimationFrame(gDraw);
 }
@@ -135,12 +145,14 @@ function gTap(px,py){
       if(gInput[idx]!==gSeq[idx]){
         // Wrong
         pn(0,0.2,0.2,180,0.5);
+        gFbText='ミス！';gFbTimer=35;gFbOk=false;
         gInput=[];
         setTimeout(()=>gShowSeq(),600);
         return;
       }
       if(gInput.length===gSeq.length){
         gScore++;
+        gFbText='成功！';gFbTimer=35;gFbOk=true;
         document.getElementById('g-count').textContent=Math.max(0,6-gScore);
         document.getElementById('g-fill').style.width=(gScore/6*100)+'%';
         if(gScore>=6){gRunning=false;chord([523,659,784,1047],'sine',0,1.2,0.12);for(let i=0;i<5;i++)pt(1047+i*130,'sine',i*0.07,0.8,0.07);doFlash(140,'#00bcd4');document.getElementById('game-clear').style.opacity='1';setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>{const el=document.getElementById(id);el.style.transition='opacity 0.6s';el.style.opacity='0';});setTimeout(()=>{['game-ui','c-game','game-clear'].forEach(id=>document.getElementById(id).style.display='none');run();},680);},950);return;}
